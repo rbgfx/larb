@@ -3,6 +3,27 @@
 require_relative "../test_helper"
 
 class ColorTest < Test::Unit::TestCase
+  def test_bytes_clamp_before_integer_conversion
+    [1e8, 1e300, Float::INFINITY].each do |large|
+      assert_equal [255, 0, 128, 255], Larb::Color.new(large, -large, 0.5, 1).to_bytes
+      assert_equal "#ff0080ff", Larb::Color.new(large, -large, 0.5, 1).to_hex
+    end
+    4.times do |i|
+      values = [0, 0, 0, 1]
+      values[i] = Float::NAN
+      assert_raise(ArgumentError) { Larb::Color.new(*values).to_bytes }
+    end
+  end
+
+  def test_from_hex_validates_the_entire_string
+    ["#gg0000", "#ff0000zz", "#ff0000ffjunk", "f#f0000", "", "#fff",
+     "#ffff", " ff0000", "#ff0000\n", "ff0000\0", "＃ff0000"].each do |hex|
+      assert_raise(ArgumentError, hex.inspect) { Larb::Color.from_hex(hex) }
+    end
+    assert_raise(TypeError) { Larb::Color.from_hex(nil) }
+    assert_equal [255, 128, 0, 170], Larb::Color.from_hex("#FF8000aA").to_bytes
+  end
+
   def test_new_with_default_values
     c = Larb::Color.new
     assert_equal 0.0, c.r

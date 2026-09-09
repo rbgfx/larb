@@ -3,6 +3,69 @@
 require_relative "../test_helper"
 
 class Vec3Test < Test::Unit::TestCase
+  def assert_finite_vector(expected, actual)
+    actual.to_a.zip(expected).each do |value, target|
+      assert_predicate value, :finite?
+      assert_in_delta target, value, 1e-10
+    end
+  end
+
+  def test_slerp_equal_opposite_and_nonunit_endpoints
+    a = Larb::Vec3.new(2, 0, 0)
+    [0, 0.5, 1].each { |t| assert_finite_vector a.to_a, a.slerp(a, t) }
+    b = Larb::Vec3.new(0, 4, 0)
+    assert_equal a, a.slerp(b, 0)
+    assert_equal b, a.slerp(b, 1)
+    assert_finite_vector [3 / Math.sqrt(2), 3 / Math.sqrt(2), 0], a.slerp(b, 0.5)
+    same_direction = Larb::Vec3.new(4, 0, 0)
+    assert_finite_vector [3, 0, 0], a.slerp(same_direction, 0.5)
+
+    [Larb::Vec3.right, Larb::Vec3.up, Larb::Vec3.new(1, 2, 3).normalize].each do |v|
+      middle = v.slerp(-v, 0.5)
+      assert middle.to_a.all?(&:finite?)
+      assert_in_delta 1, middle.length, 1e-10
+      assert_in_delta 0, middle.dot(v), 1e-10
+      assert_equal(-v, v.slerp(-v, 1))
+      assert_equal middle, v.slerp(-v, 0.5)
+    end
+    close = Larb::Vec3.new(1, 1e-8, 0).normalize
+    assert_finite_vector [1, 5e-9, 0], Larb::Vec3.right.slerp(close, 0.5)
+  end
+
+  def test_direction_operations_reject_zero_vectors
+    v = Larb::Vec3.right
+    assert_raise(ArgumentError) { v.project(Larb::Vec3.zero) }
+    assert_raise(ArgumentError) { v.reject(Larb::Vec3.zero) }
+    assert_raise(ArgumentError) { v.angle_between(Larb::Vec3.zero) }
+    assert_raise(ArgumentError) { Larb::Vec3.zero.angle_between(v) }
+    assert_raise(ArgumentError) { v.slerp(Larb::Vec3.zero, 0.5) }
+    assert_raise(ArgumentError) { Larb::Vec3.zero.slerp(v, 0.5) }
+    assert_raise(ArgumentError) { v.slerp(v, Float::NAN) }
+  end
+
+  def test_slerp_near_antipodes_preserves_interpolated_length
+    a = Larb::Vec3.new(1, 2, 3).normalize
+    tangent = a.cross(Larb::Vec3.right).normalize
+    [1e-8, 1e-10, 1e-11, 1e-13].each do |offset|
+      b = (-a + tangent * offset).normalize
+      [0.25, 0.5, 0.75].each do |t|
+        result = (a * 2).slerp(b * 4, t)
+        assert result.to_a.all?(&:finite?)
+        assert_in_delta 2 + 2 * t, result.length, 1e-12
+      end
+    end
+  end
+
+  def test_projection_and_angle_handle_extreme_direction_magnitudes
+    [1e200, 1e-200].each do |magnitude|
+      v = Larb::Vec3.new(3, 4, 5)
+      direction = Larb::Vec3.new(magnitude, 0, 0)
+      assert_finite_vector [3, 0, 0], v.project(direction)
+      assert_finite_vector [0, 4, 5], v.reject(direction)
+      assert_in_delta Math::PI / 2, direction.angle_between(Larb::Vec3.up * magnitude), 1e-10
+    end
+  end
+
   def test_new_with_default_values
     v = Larb::Vec3.new
     assert_equal 0.0, v.x

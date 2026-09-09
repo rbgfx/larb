@@ -78,7 +78,14 @@ class Vec4Test < Test::Unit::TestCase
 
   def test_perspective_divide_w_is_0
     v = Larb::Vec4.new(1, 2, 3, 0)
-    assert_equal Larb::Vec3.new(1, 2, 3), v.perspective_divide
+    assert_raise(ArgumentError) { v.perspective_divide }
+    assert_equal Larb::Vec3.new(1, 2, 3), v.xyz
+  end
+
+  def test_perspective_divide_rejects_nonfinite_w
+    [Float::NAN, Float::INFINITY].each do |w|
+      assert_raise(ArgumentError) { Larb::Vec4.new(1, 2, 3, w).perspective_divide }
+    end
   end
 
   def test_xyz

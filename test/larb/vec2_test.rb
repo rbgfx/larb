@@ -3,6 +3,29 @@
 require_relative "../test_helper"
 
 class Vec2Test < Test::Unit::TestCase
+  def test_index_assignment_bounds_and_negative_indices
+    v = Larb::Vec2.new(1, 2)
+    v[-2] = 3
+    v[-1] = 4
+    assert_equal [3.0, 4.0], v.to_a
+    [-3, 2, 100].each { |index| assert_raise(IndexError) { v[index] = 99 } }
+    assert_equal [3.0, 4.0], v.to_a
+  end
+
+  def test_clamp_length_validates_limits_and_handles_extreme_magnitudes
+    [Larb::Vec2, Larb::Vec3].each do |klass|
+      v = klass.new(1e200, 0)
+      [-1, Float::NAN, Float::INFINITY].each do |limit|
+        assert_raise(ArgumentError) { v.clamp_length(limit) }
+      end
+      assert_equal klass.new(2, 0), v.clamp_length(2)
+      assert_equal klass.zero, v.clamp_length(0)
+      assert_equal klass.zero, klass.zero.clamp_length(0)
+      tiny = klass.new(1e-200, 0)
+      assert_equal klass.new(1e-201, 0), tiny.clamp_length(1e-201)
+    end
+  end
+
   def test_new_with_default_values
     v = Larb::Vec2.new
     assert_equal 0.0, v.x

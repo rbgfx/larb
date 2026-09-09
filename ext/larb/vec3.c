@@ -20,11 +20,6 @@ static const rb_data_type_t vec3_type = {
 
 static VALUE cVec3 = Qnil;
 
-static double value_to_double(VALUE value) {
-  VALUE coerced = rb_funcall(value, rb_intern("to_f"), 0);
-  return NUM2DBL(coerced);
-}
-
 static Vec3Data *vec3_get(VALUE obj) {
   Vec3Data *data = NULL;
   TypedData_Get_Struct(obj, Vec3Data, &vec3_type, data);
@@ -59,22 +54,24 @@ VALUE vec3_alloc(VALUE klass) {
 }
 
 VALUE vec3_initialize(int argc, VALUE *argv, VALUE self) {
+  rb_check_frozen(self);
   VALUE vx = Qnil;
   VALUE vy = Qnil;
   VALUE vz = Qnil;
-  Vec3Data *data = vec3_get(self);
-
   rb_scan_args(argc, argv, "03", &vx, &vy, &vz);
-  data->x = NIL_P(vx) ? 0.0 : value_to_double(vx);
-  data->y = NIL_P(vy) ? 0.0 : value_to_double(vy);
-  data->z = NIL_P(vz) ? 0.0 : value_to_double(vz);
-
+  Vec3Data value = {
+      argc > 0 ? NUM2DBL(vx) : 0.0,
+      argc > 1 ? NUM2DBL(vy) : 0.0,
+      argc > 2 ? NUM2DBL(vz) : 0.0
+  };
+  rb_check_frozen(self);
+  *vec3_get(self) = value;
   return self;
 }
 
 static VALUE vec3_class_bracket(VALUE klass, VALUE x, VALUE y, VALUE z) {
-  return vec3_build(klass, value_to_double(x), value_to_double(y),
-                    value_to_double(z));
+  return vec3_build(klass, NUM2DBL(x), NUM2DBL(y),
+                    NUM2DBL(z));
 }
 
 static VALUE vec3_class_zero(VALUE klass) {
@@ -115,8 +112,11 @@ static VALUE vec3_get_x(VALUE self) {
 }
 
 static VALUE vec3_set_x(VALUE self, VALUE value) {
+  rb_check_frozen(self);
   Vec3Data *data = vec3_get(self);
-  data->x = value_to_double(value);
+  double component = NUM2DBL(value);
+  rb_check_frozen(self);
+  data->x = component;
   return value;
 }
 
@@ -126,8 +126,11 @@ static VALUE vec3_get_y(VALUE self) {
 }
 
 static VALUE vec3_set_y(VALUE self, VALUE value) {
+  rb_check_frozen(self);
   Vec3Data *data = vec3_get(self);
-  data->y = value_to_double(value);
+  double component = NUM2DBL(value);
+  rb_check_frozen(self);
+  data->y = component;
   return value;
 }
 
@@ -137,8 +140,11 @@ static VALUE vec3_get_z(VALUE self) {
 }
 
 static VALUE vec3_set_z(VALUE self, VALUE value) {
+  rb_check_frozen(self);
   Vec3Data *data = vec3_get(self);
-  data->z = value_to_double(value);
+  double component = NUM2DBL(value);
+  rb_check_frozen(self);
+  data->z = component;
   return value;
 }
 
@@ -165,13 +171,13 @@ VALUE vec3_mul(VALUE self, VALUE scalar) {
                       a->z * b->z);
   }
 
-  double s = value_to_double(scalar);
+  double s = NUM2DBL(scalar);
   return vec3_build(rb_obj_class(self), a->x * s, a->y * s, a->z * s);
 }
 
 VALUE vec3_div(VALUE self, VALUE scalar) {
   Vec3Data *a = vec3_get(self);
-  double s = value_to_double(scalar);
+  double s = NUM2DBL(scalar);
   return vec3_build(rb_obj_class(self), a->x / s, a->y / s, a->z / s);
 }
 
@@ -196,7 +202,7 @@ VALUE vec3_cross(VALUE self, VALUE other) {
 
 VALUE vec3_length(VALUE self) {
   Vec3Data *a = vec3_get(self);
-  return DBL2NUM(sqrt(a->x * a->x + a->y * a->y + a->z * a->z));
+  return DBL2NUM(hypot(hypot(a->x, a->y), a->z));
 }
 
 VALUE vec3_length_squared(VALUE self) {
@@ -206,8 +212,9 @@ VALUE vec3_length_squared(VALUE self) {
 
 VALUE vec3_normalize(VALUE self) {
   Vec3Data *a = vec3_get(self);
-  double len = sqrt(a->x * a->x + a->y * a->y + a->z * a->z);
-  return vec3_build(rb_obj_class(self), a->x / len, a->y / len, a->z / len);
+  double values[] = {a->x, a->y, a->z};
+  larb_normalize(values, 3);
+  return vec3_build(rb_obj_class(self), values[0], values[1], values[2]);
 }
 
 VALUE vec3_reflect(VALUE self, VALUE normal) {
@@ -242,7 +249,7 @@ VALUE vec3_yz(VALUE self) {
 VALUE vec3_lerp(VALUE self, VALUE other, VALUE t) {
   Vec3Data *a = vec3_get(self);
   Vec3Data *b = vec3_get(other);
-  double s = value_to_double(t);
+  double s = NUM2DBL(t);
   return vec3_build(rb_obj_class(self), a->x + (b->x - a->x) * s,
                     a->y + (b->y - a->y) * s,
                     a->z + (b->z - a->z) * s);
@@ -265,7 +272,7 @@ VALUE vec3_to_vec4(int argc, VALUE *argv, VALUE self) {
   VALUE vec4_class = rb_const_get(mLarb, rb_intern("Vec4"));
   return rb_funcall(vec4_class, rb_intern("new"), 4, DBL2NUM(a->x),
                     DBL2NUM(a->y), DBL2NUM(a->z),
-                    NIL_P(vw) ? DBL2NUM(1.0) : vw);
+                    argc == 0 ? DBL2NUM(1.0) : vw);
 }
 
 VALUE vec3_aref(VALUE self, VALUE index) {
@@ -289,7 +296,10 @@ VALUE vec3_near(int argc, VALUE *argv, VALUE self) {
   rb_scan_args(argc, argv, "11", &other, &epsilon);
   Vec3Data *a = vec3_get(self);
   Vec3Data *b = vec3_get(other);
-  double eps = NIL_P(epsilon) ? 1e-6 : value_to_double(epsilon);
+  double eps = argc < 2 ? 1e-6 : NUM2DBL(epsilon);
+  if (!isfinite(eps) || eps <= 0.0) {
+    rb_raise(rb_eArgError, "epsilon must be finite and positive");
+  }
 
   if (fabs(a->x - b->x) < eps && fabs(a->y - b->y) < eps &&
       fabs(a->z - b->z) < eps) {
@@ -304,7 +314,7 @@ VALUE vec3_distance(VALUE self, VALUE other) {
   double dx = a->x - b->x;
   double dy = a->y - b->y;
   double dz = a->z - b->z;
-  return DBL2NUM(sqrt(dx * dx + dy * dy + dz * dz));
+  return DBL2NUM(hypot(hypot(dx, dy), dz));
 }
 
 VALUE vec3_distance_squared(VALUE self, VALUE other) {
@@ -319,75 +329,92 @@ VALUE vec3_distance_squared(VALUE self, VALUE other) {
 VALUE vec3_angle_between(VALUE self, VALUE other) {
   Vec3Data *a = vec3_get(self);
   Vec3Data *b = vec3_get(other);
-  double len = sqrt(a->x * a->x + a->y * a->y + a->z * a->z);
-  double other_len = sqrt(b->x * b->x + b->y * b->y + b->z * b->z);
-  double dot = a->x * b->x + a->y * b->y + a->z * b->z;
-  double d = dot / (len * other_len);
+  double av[] = {a->x, a->y, a->z};
+  double bv[] = {b->x, b->y, b->z};
+  larb_normalize(av, 3);
+  larb_normalize(bv, 3);
+  double d = av[0] * bv[0] + av[1] * bv[1] + av[2] * bv[2];
   return DBL2NUM(acos(clamp_double(d, -1.0, 1.0)));
 }
 
 VALUE vec3_project(VALUE self, VALUE onto) {
   Vec3Data *a = vec3_get(self);
   Vec3Data *b = vec3_get(onto);
-  double denom = b->x * b->x + b->y * b->y + b->z * b->z;
-  double scale = (a->x * b->x + a->y * b->y + a->z * b->z) / denom;
-  return vec3_build(rb_obj_class(self), b->x * scale, b->y * scale,
-                    b->z * scale);
+  double direction[] = {b->x, b->y, b->z};
+  larb_normalize(direction, 3);
+  double scale = a->x * direction[0] + a->y * direction[1] + a->z * direction[2];
+  return vec3_build(rb_obj_class(self), direction[0] * scale,
+                    direction[1] * scale, direction[2] * scale);
 }
 
 VALUE vec3_reject(VALUE self, VALUE from) {
-  Vec3Data *a = vec3_get(self);
-  Vec3Data *b = vec3_get(from);
-  double denom = b->x * b->x + b->y * b->y + b->z * b->z;
-  double scale = (a->x * b->x + a->y * b->y + a->z * b->z) / denom;
-  double px = b->x * scale;
-  double py = b->y * scale;
-  double pz = b->z * scale;
-  return vec3_build(rb_obj_class(self), a->x - px, a->y - py, a->z - pz);
+  return vec3_sub(self, vec3_project(self, from));
 }
 
 VALUE vec3_slerp(VALUE self, VALUE other, VALUE t) {
   Vec3Data *a = vec3_get(self);
   Vec3Data *b = vec3_get(other);
-  double s = value_to_double(t);
+  double s = NUM2DBL(t);
+  double len = hypot(hypot(a->x, a->y), a->z);
+  double other_len = hypot(hypot(b->x, b->y), b->z);
+  if (!isfinite(s) || !isfinite(len) || !isfinite(other_len)) {
+    rb_raise(rb_eArgError, "slerp requires finite lengths and interpolation parameter");
+  }
+  double av[] = {a->x, a->y, a->z};
+  double bv[] = {b->x, b->y, b->z};
+  larb_normalize(av, 3);
+  larb_normalize(bv, 3);
+  if (s == 0.0) return vec3_build(rb_obj_class(self), a->x, a->y, a->z);
+  if (s == 1.0) return vec3_build(rb_obj_class(self), b->x, b->y, b->z);
 
-  double len = sqrt(a->x * a->x + a->y * a->y + a->z * a->z);
-  double other_len = sqrt(b->x * b->x + b->y * b->y + b->z * b->z);
-  double dot = (a->x * b->x + a->y * b->y + a->z * b->z) / (len * other_len);
-  dot = clamp_double(dot, -1.0, 1.0);
-
-  double theta = acos(dot) * s;
-  double rx = b->x - a->x * dot;
-  double ry = b->y - a->y * dot;
-  double rz = b->z - a->z * dot;
-  double rlen = sqrt(rx * rx + ry * ry + rz * rz);
-  rx /= rlen;
-  ry /= rlen;
-  rz /= rlen;
-
-  return vec3_build(rb_obj_class(self), a->x * cos(theta) + rx * sin(theta),
-                    a->y * cos(theta) + ry * sin(theta),
-                    a->z * cos(theta) + rz * sin(theta));
+  double dot = clamp_double(av[0] * bv[0] + av[1] * bv[1] + av[2] * bv[2], -1.0, 1.0);
+  double direction[3];
+  if (dot > 1.0 - 1e-12) {
+    for (int i = 0; i < 3; i++) direction[i] = av[i] + (bv[i] - av[i]) * s;
+  } else {
+    double normal[] = {av[1] * bv[2] - av[2] * bv[1],
+                       av[2] * bv[0] - av[0] * bv[2],
+                       av[0] * bv[1] - av[1] * bv[0]};
+    double tangent[] = {normal[1] * av[2] - normal[2] * av[1],
+                        normal[2] * av[0] - normal[0] * av[2],
+                        normal[0] * av[1] - normal[1] * av[0]};
+    double sine = hypot(hypot(normal[0], normal[1]), normal[2]);
+    if (sine < 1e-12) {
+      // Antipodes have no unique arc; choose the least-aligned coordinate axis.
+      int axis = 0;
+      for (int i = 1; i < 3; i++) if (fabs(av[i]) < fabs(av[axis])) axis = i;
+      for (int i = 0; i < 3; i++) tangent[i] = (i == axis ? 1.0 : 0.0) - av[i] * av[axis];
+    }
+    larb_normalize(tangent, 3);
+    double theta = atan2(sine, dot) * s;
+    for (int i = 0; i < 3; i++) direction[i] = av[i] * cos(theta) + tangent[i] * sin(theta);
+  }
+  larb_normalize(direction, 3);
+  double length = (1.0 - s) * len + s * other_len;
+  return vec3_build(rb_obj_class(self), direction[0] * length,
+                    direction[1] * length, direction[2] * length);
 }
 
 VALUE vec3_clamp_length(VALUE self, VALUE max_length) {
   Vec3Data *a = vec3_get(self);
-  double max_len = value_to_double(max_length);
-  double len_sq = a->x * a->x + a->y * a->y + a->z * a->z;
-  if (len_sq <= max_len * max_len) {
-    return self;
+  double max_len = NUM2DBL(max_length);
+  if (!isfinite(max_len) || max_len < 0.0) {
+    rb_raise(rb_eArgError, "max_length must be finite and nonnegative");
   }
-  double scale = max_len / sqrt(len_sq);
-  return vec3_build(rb_obj_class(self), a->x * scale, a->y * scale,
-                    a->z * scale);
+  if (hypot(hypot(a->x, a->y), a->z) <= max_len) return self;
+  double values[] = {a->x, a->y, a->z};
+  larb_normalize(values, 3);
+  return vec3_build(rb_obj_class(self), values[0] * max_len, values[1] * max_len, values[2] * max_len);
 }
 
 VALUE vec3_normalize_bang(VALUE self) {
+  rb_check_frozen(self);
   Vec3Data *a = vec3_get(self);
-  double len = sqrt(a->x * a->x + a->y * a->y + a->z * a->z);
-  a->x /= len;
-  a->y /= len;
-  a->z /= len;
+  double values[] = {a->x, a->y, a->z};
+  larb_normalize(values, 3);
+  a->x = values[0];
+  a->y = values[1];
+  a->z = values[2];
   return self;
 }
 
@@ -440,11 +467,19 @@ VALUE vec3_inspect(VALUE self) {
   return str;
 }
 
+static VALUE vec3_initialize_copy(VALUE self, VALUE other) {
+  if (self == other) return self;
+  rb_obj_init_copy(self, other);
+  *vec3_get(self) = *vec3_get(other);
+  return self;
+}
+
 void Init_vec3(VALUE module) {
   cVec3 = rb_define_class_under(module, "Vec3", rb_cObject);
 
   rb_define_alloc_func(cVec3, vec3_alloc);
   rb_define_method(cVec3, "initialize", vec3_initialize, -1);
+  rb_define_method(cVec3, "initialize_copy", vec3_initialize_copy, 1);
 
   rb_define_singleton_method(cVec3, "[]", vec3_class_bracket, 3);
   rb_define_singleton_method(cVec3, "zero", vec3_class_zero, 0);

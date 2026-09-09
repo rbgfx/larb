@@ -22,11 +22,6 @@ static VALUE cColor = Qnil;
 static VALUE cVec3 = Qnil;
 static VALUE cVec4 = Qnil;
 
-static double value_to_double(VALUE value) {
-  VALUE coerced = rb_funcall(value, rb_intern("to_f"), 0);
-  return NUM2DBL(coerced);
-}
-
 static ColorData *color_get(VALUE obj) {
   ColorData *data = NULL;
   TypedData_Get_Struct(obj, ColorData, &color_type, data);
@@ -53,14 +48,9 @@ static double clamp_double(double value, double min, double max) {
   return value;
 }
 
-static int clamp_int(int value, int min, int max) {
-  if (value < min) {
-    return min;
-  }
-  if (value > max) {
-    return max;
-  }
-  return value;
+static int color_byte(double value) {
+  if (isnan(value)) rb_raise(rb_eArgError, "Cannot convert NaN to a color byte");
+  return (int)lround(clamp_double(value, 0.0, 1.0) * 255.0);
 }
 
 static VALUE color_get_r(VALUE self) {
@@ -69,8 +59,11 @@ static VALUE color_get_r(VALUE self) {
 }
 
 static VALUE color_set_r(VALUE self, VALUE value) {
+  rb_check_frozen(self);
   ColorData *data = color_get(self);
-  data->r = value_to_double(value);
+  double component = NUM2DBL(value);
+  rb_check_frozen(self);
+  data->r = component;
   return value;
 }
 
@@ -80,8 +73,11 @@ static VALUE color_get_g(VALUE self) {
 }
 
 static VALUE color_set_g(VALUE self, VALUE value) {
+  rb_check_frozen(self);
   ColorData *data = color_get(self);
-  data->g = value_to_double(value);
+  double component = NUM2DBL(value);
+  rb_check_frozen(self);
+  data->g = component;
   return value;
 }
 
@@ -91,8 +87,11 @@ static VALUE color_get_b(VALUE self) {
 }
 
 static VALUE color_set_b(VALUE self, VALUE value) {
+  rb_check_frozen(self);
   ColorData *data = color_get(self);
-  data->b = value_to_double(value);
+  double component = NUM2DBL(value);
+  rb_check_frozen(self);
+  data->b = component;
   return value;
 }
 
@@ -102,8 +101,11 @@ static VALUE color_get_a(VALUE self) {
 }
 
 static VALUE color_set_a(VALUE self, VALUE value) {
+  rb_check_frozen(self);
   ColorData *data = color_get(self);
-  data->a = value_to_double(value);
+  double component = NUM2DBL(value);
+  rb_check_frozen(self);
+  data->a = component;
   return value;
 }
 
@@ -117,18 +119,20 @@ VALUE color_alloc(VALUE klass) {
 }
 
 VALUE color_initialize(int argc, VALUE *argv, VALUE self) {
+  rb_check_frozen(self);
   VALUE vr = Qnil;
   VALUE vg = Qnil;
   VALUE vb = Qnil;
   VALUE va = Qnil;
-  ColorData *data = color_get(self);
-
   rb_scan_args(argc, argv, "04", &vr, &vg, &vb, &va);
-  data->r = NIL_P(vr) ? 0.0 : value_to_double(vr);
-  data->g = NIL_P(vg) ? 0.0 : value_to_double(vg);
-  data->b = NIL_P(vb) ? 0.0 : value_to_double(vb);
-  data->a = NIL_P(va) ? 1.0 : value_to_double(va);
-
+  ColorData value = {
+      argc > 0 ? NUM2DBL(vr) : 0.0,
+      argc > 1 ? NUM2DBL(vg) : 0.0,
+      argc > 2 ? NUM2DBL(vb) : 0.0,
+      argc > 3 ? NUM2DBL(va) : 1.0
+  };
+  rb_check_frozen(self);
+  *color_get(self) = value;
   return self;
 }
 
@@ -139,18 +143,18 @@ static VALUE color_class_bracket(int argc, VALUE *argv, VALUE klass) {
   VALUE va = Qnil;
 
   rb_scan_args(argc, argv, "31", &vr, &vg, &vb, &va);
-  return color_build(klass, value_to_double(vr), value_to_double(vg),
-                     value_to_double(vb), NIL_P(va) ? 1.0 : value_to_double(va));
+  return color_build(klass, NUM2DBL(vr), NUM2DBL(vg),
+                     NUM2DBL(vb), argc < 4 ? 1.0 : NUM2DBL(va));
 }
 
 static VALUE color_class_rgb(VALUE klass, VALUE r, VALUE g, VALUE b) {
-  return color_build(klass, value_to_double(r), value_to_double(g),
-                     value_to_double(b), 1.0);
+  return color_build(klass, NUM2DBL(r), NUM2DBL(g),
+                     NUM2DBL(b), 1.0);
 }
 
 static VALUE color_class_rgba(VALUE klass, VALUE r, VALUE g, VALUE b, VALUE a) {
-  return color_build(klass, value_to_double(r), value_to_double(g),
-                     value_to_double(b), value_to_double(a));
+  return color_build(klass, NUM2DBL(r), NUM2DBL(g),
+                     NUM2DBL(b), NUM2DBL(a));
 }
 
 static VALUE color_class_from_bytes(int argc, VALUE *argv, VALUE klass) {
@@ -160,41 +164,37 @@ static VALUE color_class_from_bytes(int argc, VALUE *argv, VALUE klass) {
   VALUE va = Qnil;
 
   rb_scan_args(argc, argv, "31", &vr, &vg, &vb, &va);
-  double r = value_to_double(vr) / 255.0;
-  double g = value_to_double(vg) / 255.0;
-  double b = value_to_double(vb) / 255.0;
-  double a = NIL_P(va) ? 1.0 : value_to_double(va) / 255.0;
+  double r = NUM2DBL(vr) / 255.0;
+  double g = NUM2DBL(vg) / 255.0;
+  double b = NUM2DBL(vb) / 255.0;
+  double a = argc < 4 ? 1.0 : NUM2DBL(va) / 255.0;
   return color_build(klass, r, g, b, a);
 }
 
 static VALUE color_class_from_hex(VALUE klass, VALUE hex_value) {
-  VALUE hex = rb_funcall(hex_value, rb_intern("to_s"), 0);
-  VALUE cleaned = rb_funcall(hex, rb_intern("delete"), 1, rb_str_new_cstr("#"));
-  VALUE len_val = rb_funcall(cleaned, rb_intern("length"), 0);
-  long len = NUM2LONG(len_val);
-
-  VALUE r_str = rb_funcall(cleaned, rb_intern("[]"), 2, INT2NUM(0), INT2NUM(2));
-  VALUE g_str = rb_funcall(cleaned, rb_intern("[]"), 2, INT2NUM(2), INT2NUM(2));
-  VALUE b_str = rb_funcall(cleaned, rb_intern("[]"), 2, INT2NUM(4), INT2NUM(2));
-  double r = value_to_double(rb_funcall(r_str, rb_intern("to_i"), 1,
-                                        INT2NUM(16))) /
-             255.0;
-  double g = value_to_double(rb_funcall(g_str, rb_intern("to_i"), 1,
-                                        INT2NUM(16))) /
-             255.0;
-  double b = value_to_double(rb_funcall(b_str, rb_intern("to_i"), 1,
-                                        INT2NUM(16))) /
-             255.0;
-  double a = 1.0;
-  if (len > 6) {
-    VALUE a_str =
-        rb_funcall(cleaned, rb_intern("[]"), 2, INT2NUM(6), INT2NUM(2));
-    a = value_to_double(
-            rb_funcall(a_str, rb_intern("to_i"), 1, INT2NUM(16))) /
-        255.0;
+  StringValue(hex_value);
+  const char *hex = RSTRING_PTR(hex_value);
+  long len = RSTRING_LEN(hex_value);
+  if (len > 0 && hex[0] == '#') {
+    hex++;
+    len--;
   }
-
-  return color_build(klass, r, g, b, a);
+  if (len != 6 && len != 8) {
+    rb_raise(rb_eArgError, "Expected 6 or 8 hexadecimal digits with an optional leading #");
+  }
+  unsigned int rgba = 0;
+  for (long i = 0; i < len; i++) {
+    unsigned int digit;
+    if (hex[i] >= '0' && hex[i] <= '9') digit = hex[i] - '0';
+    else if (hex[i] >= 'a' && hex[i] <= 'f') digit = hex[i] - 'a' + 10;
+    else if (hex[i] >= 'A' && hex[i] <= 'F') digit = hex[i] - 'A' + 10;
+    else rb_raise(rb_eArgError, "Invalid hexadecimal digit");
+    rgba = (rgba << 4) | digit;
+  }
+  if (len == 6) rgba = (rgba << 8) | 255;
+  return color_build(klass, ((rgba >> 24) & 255) / 255.0,
+                     ((rgba >> 16) & 255) / 255.0, ((rgba >> 8) & 255) / 255.0,
+                     (rgba & 255) / 255.0);
 }
 
 static VALUE color_class_black(VALUE klass) {
@@ -234,10 +234,10 @@ static VALUE color_class_transparent(VALUE klass) {
 }
 
 VALUE color_class_from_vec4(VALUE klass, VALUE vec4) {
-  double r = value_to_double(rb_funcall(vec4, rb_intern("x"), 0));
-  double g = value_to_double(rb_funcall(vec4, rb_intern("y"), 0));
-  double b = value_to_double(rb_funcall(vec4, rb_intern("z"), 0));
-  double a = value_to_double(rb_funcall(vec4, rb_intern("w"), 0));
+  double r = NUM2DBL(rb_funcall(vec4, rb_intern("x"), 0));
+  double g = NUM2DBL(rb_funcall(vec4, rb_intern("y"), 0));
+  double b = NUM2DBL(rb_funcall(vec4, rb_intern("z"), 0));
+  double a = NUM2DBL(rb_funcall(vec4, rb_intern("w"), 0));
   return color_build(klass, r, g, b, a);
 }
 
@@ -245,10 +245,10 @@ VALUE color_class_from_vec3(int argc, VALUE *argv, VALUE klass) {
   VALUE vec3 = Qnil;
   VALUE alpha = Qnil;
   rb_scan_args(argc, argv, "11", &vec3, &alpha);
-  double r = value_to_double(rb_funcall(vec3, rb_intern("x"), 0));
-  double g = value_to_double(rb_funcall(vec3, rb_intern("y"), 0));
-  double b = value_to_double(rb_funcall(vec3, rb_intern("z"), 0));
-  double a = NIL_P(alpha) ? 1.0 : value_to_double(alpha);
+  double r = NUM2DBL(rb_funcall(vec3, rb_intern("x"), 0));
+  double g = NUM2DBL(rb_funcall(vec3, rb_intern("y"), 0));
+  double b = NUM2DBL(rb_funcall(vec3, rb_intern("z"), 0));
+  double a = argc < 2 ? 1.0 : NUM2DBL(alpha);
   return color_build(klass, r, g, b, a);
 }
 
@@ -274,17 +274,17 @@ VALUE color_mul(VALUE self, VALUE scalar) {
                        a->b * b->b, a->a * b->a);
   }
   if (rb_obj_is_kind_of(scalar, rb_cNumeric)) {
-    double s = value_to_double(scalar);
+    double s = NUM2DBL(scalar);
     return color_build(rb_obj_class(self), a->r * s, a->g * s, a->b * s,
                        a->a * s);
   }
-  return Qnil;
+  rb_raise(rb_eTypeError, "Expected a Color or numeric scalar");
 }
 
 VALUE color_lerp(VALUE self, VALUE other, VALUE t) {
   ColorData *a = color_get(self);
   ColorData *b = color_get(other);
-  double s = value_to_double(t);
+  double s = NUM2DBL(t);
   return color_build(rb_obj_class(self), a->r + (b->r - a->r) * s,
                      a->g + (b->g - a->g) * s, a->b + (b->b - a->b) * s,
                      a->a + (b->a - a->a) * s);
@@ -300,16 +300,8 @@ VALUE color_clamp(VALUE self) {
 
 VALUE color_to_bytes(VALUE self) {
   ColorData *a = color_get(self);
-  int r = (int)lround(a->r * 255.0);
-  int g = (int)lround(a->g * 255.0);
-  int b = (int)lround(a->b * 255.0);
-  int alpha = (int)lround(a->a * 255.0);
-  VALUE ary = rb_ary_new_capa(4);
-  rb_ary_push(ary, INT2NUM(clamp_int(r, 0, 255)));
-  rb_ary_push(ary, INT2NUM(clamp_int(g, 0, 255)));
-  rb_ary_push(ary, INT2NUM(clamp_int(b, 0, 255)));
-  rb_ary_push(ary, INT2NUM(clamp_int(alpha, 0, 255)));
-  return ary;
+  return rb_ary_new_from_args(4, INT2NUM(color_byte(a->r)), INT2NUM(color_byte(a->g)),
+                              INT2NUM(color_byte(a->b)), INT2NUM(color_byte(a->a)));
 }
 
 VALUE color_to_hex(VALUE self) {
@@ -367,7 +359,10 @@ VALUE color_near(int argc, VALUE *argv, VALUE self) {
   rb_scan_args(argc, argv, "11", &other, &epsilon);
   ColorData *a = color_get(self);
   ColorData *b = color_get(other);
-  double eps = NIL_P(epsilon) ? 1e-6 : value_to_double(epsilon);
+  double eps = argc < 2 ? 1e-6 : NUM2DBL(epsilon);
+  if (!isfinite(eps) || eps <= 0.0) {
+    rb_raise(rb_eArgError, "epsilon must be finite and positive");
+  }
 
   if (fabs(a->r - b->r) < eps && fabs(a->g - b->g) < eps &&
       fabs(a->b - b->b) < eps && fabs(a->a - b->a) < eps) {
@@ -394,6 +389,13 @@ VALUE color_inspect(VALUE self) {
   return str;
 }
 
+static VALUE color_initialize_copy(VALUE self, VALUE other) {
+  if (self == other) return self;
+  rb_obj_init_copy(self, other);
+  *color_get(self) = *color_get(other);
+  return self;
+}
+
 void Init_color(VALUE module) {
   cColor = rb_define_class_under(module, "Color", rb_cObject);
   cVec3 = rb_const_get(mLarb, rb_intern("Vec3"));
@@ -401,6 +403,7 @@ void Init_color(VALUE module) {
 
   rb_define_alloc_func(cColor, color_alloc);
   rb_define_method(cColor, "initialize", color_initialize, -1);
+  rb_define_method(cColor, "initialize_copy", color_initialize_copy, 1);
 
   rb_define_singleton_method(cColor, "[]", color_class_bracket, -1);
   rb_define_singleton_method(cColor, "rgb", color_class_rgb, 3);

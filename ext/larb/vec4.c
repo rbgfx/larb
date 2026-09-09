@@ -20,11 +20,6 @@ static const rb_data_type_t vec4_type = {
 
 static VALUE cVec4 = Qnil;
 
-static double value_to_double(VALUE value) {
-  VALUE coerced = rb_funcall(value, rb_intern("to_f"), 0);
-  return NUM2DBL(coerced);
-}
-
 static Vec4Data *vec4_get(VALUE obj) {
   Vec4Data *data = NULL;
   TypedData_Get_Struct(obj, Vec4Data, &vec4_type, data);
@@ -51,18 +46,20 @@ VALUE vec4_alloc(VALUE klass) {
 }
 
 VALUE vec4_initialize(int argc, VALUE *argv, VALUE self) {
+  rb_check_frozen(self);
   VALUE vx = Qnil;
   VALUE vy = Qnil;
   VALUE vz = Qnil;
   VALUE vw = Qnil;
-  Vec4Data *data = vec4_get(self);
-
   rb_scan_args(argc, argv, "04", &vx, &vy, &vz, &vw);
-  data->x = NIL_P(vx) ? 0.0 : value_to_double(vx);
-  data->y = NIL_P(vy) ? 0.0 : value_to_double(vy);
-  data->z = NIL_P(vz) ? 0.0 : value_to_double(vz);
-  data->w = NIL_P(vw) ? 1.0 : value_to_double(vw);
-
+  Vec4Data value = {
+      argc > 0 ? NUM2DBL(vx) : 0.0,
+      argc > 1 ? NUM2DBL(vy) : 0.0,
+      argc > 2 ? NUM2DBL(vz) : 0.0,
+      argc > 3 ? NUM2DBL(vw) : 1.0
+  };
+  rb_check_frozen(self);
+  *vec4_get(self) = value;
   return self;
 }
 
@@ -73,8 +70,8 @@ static VALUE vec4_class_bracket(int argc, VALUE *argv, VALUE klass) {
   VALUE vw = Qnil;
 
   rb_scan_args(argc, argv, "31", &vx, &vy, &vz, &vw);
-  return vec4_build(klass, value_to_double(vx), value_to_double(vy),
-                    value_to_double(vz), NIL_P(vw) ? 1.0 : value_to_double(vw));
+  return vec4_build(klass, NUM2DBL(vx), NUM2DBL(vy),
+                    NUM2DBL(vz), argc < 4 ? 1.0 : NUM2DBL(vw));
 }
 
 static VALUE vec4_class_zero(VALUE klass) {
@@ -91,8 +88,11 @@ static VALUE vec4_get_x(VALUE self) {
 }
 
 static VALUE vec4_set_x(VALUE self, VALUE value) {
+  rb_check_frozen(self);
   Vec4Data *data = vec4_get(self);
-  data->x = value_to_double(value);
+  double component = NUM2DBL(value);
+  rb_check_frozen(self);
+  data->x = component;
   return value;
 }
 
@@ -102,8 +102,11 @@ static VALUE vec4_get_y(VALUE self) {
 }
 
 static VALUE vec4_set_y(VALUE self, VALUE value) {
+  rb_check_frozen(self);
   Vec4Data *data = vec4_get(self);
-  data->y = value_to_double(value);
+  double component = NUM2DBL(value);
+  rb_check_frozen(self);
+  data->y = component;
   return value;
 }
 
@@ -113,8 +116,11 @@ static VALUE vec4_get_z(VALUE self) {
 }
 
 static VALUE vec4_set_z(VALUE self, VALUE value) {
+  rb_check_frozen(self);
   Vec4Data *data = vec4_get(self);
-  data->z = value_to_double(value);
+  double component = NUM2DBL(value);
+  rb_check_frozen(self);
+  data->z = component;
   return value;
 }
 
@@ -124,8 +130,11 @@ static VALUE vec4_get_w(VALUE self) {
 }
 
 static VALUE vec4_set_w(VALUE self, VALUE value) {
+  rb_check_frozen(self);
   Vec4Data *data = vec4_get(self);
-  data->w = value_to_double(value);
+  double component = NUM2DBL(value);
+  rb_check_frozen(self);
+  data->w = component;
   return value;
 }
 
@@ -145,14 +154,14 @@ VALUE vec4_sub(VALUE self, VALUE other) {
 
 VALUE vec4_mul(VALUE self, VALUE scalar) {
   Vec4Data *a = vec4_get(self);
-  double s = value_to_double(scalar);
+  double s = NUM2DBL(scalar);
   return vec4_build(rb_obj_class(self), a->x * s, a->y * s, a->z * s,
                     a->w * s);
 }
 
 VALUE vec4_div(VALUE self, VALUE scalar) {
   Vec4Data *a = vec4_get(self);
-  double s = value_to_double(scalar);
+  double s = NUM2DBL(scalar);
   return vec4_build(rb_obj_class(self), a->x / s, a->y / s, a->z / s,
                     a->w / s);
 }
@@ -170,7 +179,7 @@ VALUE vec4_dot(VALUE self, VALUE other) {
 
 VALUE vec4_length(VALUE self) {
   Vec4Data *a = vec4_get(self);
-  return DBL2NUM(sqrt(a->x * a->x + a->y * a->y + a->z * a->z + a->w * a->w));
+  return DBL2NUM(hypot(hypot(hypot(a->x, a->y), a->z), a->w));
 }
 
 VALUE vec4_length_squared(VALUE self) {
@@ -180,18 +189,20 @@ VALUE vec4_length_squared(VALUE self) {
 
 VALUE vec4_normalize(VALUE self) {
   Vec4Data *a = vec4_get(self);
-  double len = sqrt(a->x * a->x + a->y * a->y + a->z * a->z + a->w * a->w);
-  return vec4_build(rb_obj_class(self), a->x / len, a->y / len, a->z / len,
-                    a->w / len);
+  double values[] = {a->x, a->y, a->z, a->w};
+  larb_normalize(values, 4);
+  return vec4_build(rb_obj_class(self), values[0], values[1], values[2], values[3]);
 }
 
 VALUE vec4_normalize_bang(VALUE self) {
+  rb_check_frozen(self);
   Vec4Data *a = vec4_get(self);
-  double len = sqrt(a->x * a->x + a->y * a->y + a->z * a->z + a->w * a->w);
-  a->x /= len;
-  a->y /= len;
-  a->z /= len;
-  a->w /= len;
+  double values[] = {a->x, a->y, a->z, a->w};
+  larb_normalize(values, 4);
+  a->x = values[0];
+  a->y = values[1];
+  a->z = values[2];
+  a->w = values[3];
   return self;
 }
 
@@ -199,9 +210,8 @@ VALUE vec4_perspective_divide(VALUE self) {
   Vec4Data *a = vec4_get(self);
   VALUE vec3_class = rb_const_get(mLarb, rb_intern("Vec3"));
 
-  if (a->w == 0.0 || a->w == 1.0) {
-    return rb_funcall(vec3_class, rb_intern("new"), 3, DBL2NUM(a->x),
-                      DBL2NUM(a->y), DBL2NUM(a->z));
+  if (!isfinite(a->w) || a->w == 0.0) {
+    rb_raise(rb_eArgError, "w must be finite and nonzero for perspective division");
   }
 
   return rb_funcall(vec3_class, rb_intern("new"), 3, DBL2NUM(a->x / a->w),
@@ -259,7 +269,10 @@ VALUE vec4_near(int argc, VALUE *argv, VALUE self) {
   rb_scan_args(argc, argv, "11", &other, &epsilon);
   Vec4Data *a = vec4_get(self);
   Vec4Data *b = vec4_get(other);
-  double eps = NIL_P(epsilon) ? 1e-6 : value_to_double(epsilon);
+  double eps = argc < 2 ? 1e-6 : NUM2DBL(epsilon);
+  if (!isfinite(eps) || eps <= 0.0) {
+    rb_raise(rb_eArgError, "epsilon must be finite and positive");
+  }
 
   if (fabs(a->x - b->x) < eps && fabs(a->y - b->y) < eps &&
       fabs(a->z - b->z) < eps && fabs(a->w - b->w) < eps) {
@@ -271,7 +284,7 @@ VALUE vec4_near(int argc, VALUE *argv, VALUE self) {
 VALUE vec4_lerp(VALUE self, VALUE other, VALUE t) {
   Vec4Data *a = vec4_get(self);
   Vec4Data *b = vec4_get(other);
-  double s = value_to_double(t);
+  double s = NUM2DBL(t);
   return vec4_build(rb_obj_class(self), a->x + (b->x - a->x) * s,
                     a->y + (b->y - a->y) * s,
                     a->z + (b->z - a->z) * s,
@@ -296,11 +309,19 @@ VALUE vec4_inspect(VALUE self) {
   return str;
 }
 
+static VALUE vec4_initialize_copy(VALUE self, VALUE other) {
+  if (self == other) return self;
+  rb_obj_init_copy(self, other);
+  *vec4_get(self) = *vec4_get(other);
+  return self;
+}
+
 void Init_vec4(VALUE module) {
   cVec4 = rb_define_class_under(module, "Vec4", rb_cObject);
 
   rb_define_alloc_func(cVec4, vec4_alloc);
   rb_define_method(cVec4, "initialize", vec4_initialize, -1);
+  rb_define_method(cVec4, "initialize_copy", vec4_initialize_copy, 1);
 
   rb_define_singleton_method(cVec4, "[]", vec4_class_bracket, -1);
   rb_define_singleton_method(cVec4, "zero", vec4_class_zero, 0);

@@ -20,11 +20,6 @@ static const rb_data_type_t vec2_type = {
 
 static VALUE cVec2 = Qnil;
 
-static double value_to_double(VALUE value) {
-  VALUE coerced = rb_funcall(value, rb_intern("to_f"), 0);
-  return NUM2DBL(coerced);
-}
-
 static Vec2Data *vec2_get(VALUE obj) {
   Vec2Data *data = NULL;
   TypedData_Get_Struct(obj, Vec2Data, &vec2_type, data);
@@ -47,19 +42,21 @@ VALUE vec2_alloc(VALUE klass) {
 }
 
 VALUE vec2_initialize(int argc, VALUE *argv, VALUE self) {
+  rb_check_frozen(self);
   VALUE vx = Qnil;
   VALUE vy = Qnil;
-  Vec2Data *data = vec2_get(self);
-
   rb_scan_args(argc, argv, "02", &vx, &vy);
-  data->x = NIL_P(vx) ? 0.0 : value_to_double(vx);
-  data->y = NIL_P(vy) ? 0.0 : value_to_double(vy);
-
+  Vec2Data value = {
+      argc > 0 ? NUM2DBL(vx) : 0.0,
+      argc > 1 ? NUM2DBL(vy) : 0.0
+  };
+  rb_check_frozen(self);
+  *vec2_get(self) = value;
   return self;
 }
 
 static VALUE vec2_class_bracket(VALUE klass, VALUE x, VALUE y) {
-  return vec2_build(klass, value_to_double(x), value_to_double(y));
+  return vec2_build(klass, NUM2DBL(x), NUM2DBL(y));
 }
 
 static VALUE vec2_class_zero(VALUE klass) {
@@ -76,8 +73,11 @@ static VALUE vec2_get_x(VALUE self) {
 }
 
 static VALUE vec2_set_x(VALUE self, VALUE value) {
+  rb_check_frozen(self);
   Vec2Data *data = vec2_get(self);
-  data->x = NUM2DBL(value);
+  double component = NUM2DBL(value);
+  rb_check_frozen(self);
+  data->x = component;
   return value;
 }
 
@@ -87,8 +87,11 @@ static VALUE vec2_get_y(VALUE self) {
 }
 
 static VALUE vec2_set_y(VALUE self, VALUE value) {
+  rb_check_frozen(self);
   Vec2Data *data = vec2_get(self);
-  data->y = NUM2DBL(value);
+  double component = NUM2DBL(value);
+  rb_check_frozen(self);
+  data->y = component;
   return value;
 }
 
@@ -129,7 +132,7 @@ VALUE vec2_dot(VALUE self, VALUE other) {
 
 VALUE vec2_length(VALUE self) {
   Vec2Data *a = vec2_get(self);
-  return DBL2NUM(sqrt(a->x * a->x + a->y * a->y));
+  return DBL2NUM(hypot(a->x, a->y));
 }
 
 VALUE vec2_length_squared(VALUE self) {
@@ -139,15 +142,18 @@ VALUE vec2_length_squared(VALUE self) {
 
 VALUE vec2_normalize(VALUE self) {
   Vec2Data *a = vec2_get(self);
-  double len = sqrt(a->x * a->x + a->y * a->y);
-  return vec2_build(rb_obj_class(self), a->x / len, a->y / len);
+  double values[] = {a->x, a->y};
+  larb_normalize(values, 2);
+  return vec2_build(rb_obj_class(self), values[0], values[1]);
 }
 
 VALUE vec2_normalize_bang(VALUE self) {
+  rb_check_frozen(self);
   Vec2Data *a = vec2_get(self);
-  double len = sqrt(a->x * a->x + a->y * a->y);
-  a->x /= len;
-  a->y /= len;
+  double values[] = {a->x, a->y};
+  larb_normalize(values, 2);
+  a->x = values[0];
+  a->y = values[1];
   return self;
 }
 
@@ -173,12 +179,17 @@ VALUE vec2_aref(VALUE self, VALUE index) {
 }
 
 VALUE vec2_aset(VALUE self, VALUE index, VALUE value) {
+  rb_check_frozen(self);
   Vec2Data *a = vec2_get(self);
   long idx = NUM2LONG(index);
+  if (idx < 0) idx += 2;
+  if (idx < 0 || idx >= 2) rb_raise(rb_eIndexError, "Index out of range");
+  double component = NUM2DBL(value);
+  rb_check_frozen(self);
   if (idx == 0) {
-    a->x = NUM2DBL(value);
+    a->x = component;
   } else {
-    a->y = NUM2DBL(value);
+    a->y = component;
   }
   return value;
 }
@@ -199,7 +210,10 @@ VALUE vec2_near(int argc, VALUE *argv, VALUE self) {
   rb_scan_args(argc, argv, "11", &other, &epsilon);
   Vec2Data *a = vec2_get(self);
   Vec2Data *b = vec2_get(other);
-  double eps = NIL_P(epsilon) ? 1e-6 : NUM2DBL(epsilon);
+  double eps = argc < 2 ? 1e-6 : NUM2DBL(epsilon);
+  if (!isfinite(eps) || eps <= 0.0) {
+    rb_raise(rb_eArgError, "epsilon must be finite and positive");
+  }
 
   if (fabs(a->x - b->x) < eps && fabs(a->y - b->y) < eps) {
     return Qtrue;
@@ -232,7 +246,7 @@ VALUE vec2_distance(VALUE self, VALUE other) {
   Vec2Data *b = vec2_get(other);
   double dx = a->x - b->x;
   double dy = a->y - b->y;
-  return DBL2NUM(sqrt(dx * dx + dy * dy));
+  return DBL2NUM(hypot(dx, dy));
 }
 
 VALUE vec2_distance_squared(VALUE self, VALUE other) {
@@ -265,12 +279,13 @@ VALUE vec2_reflect(VALUE self, VALUE normal) {
 VALUE vec2_clamp_length(VALUE self, VALUE max_length) {
   Vec2Data *a = vec2_get(self);
   double max_len = NUM2DBL(max_length);
-  double len_sq = a->x * a->x + a->y * a->y;
-  if (len_sq <= max_len * max_len) {
-    return self;
+  if (!isfinite(max_len) || max_len < 0.0) {
+    rb_raise(rb_eArgError, "max_length must be finite and nonnegative");
   }
-  double scale = max_len / sqrt(len_sq);
-  return vec2_build(rb_obj_class(self), a->x * scale, a->y * scale);
+  if (hypot(a->x, a->y) <= max_len) return self;
+  double values[] = {a->x, a->y};
+  larb_normalize(values, 2);
+  return vec2_build(rb_obj_class(self), values[0] * max_len, values[1] * max_len);
 }
 
 VALUE vec2_to_vec3(int argc, VALUE *argv, VALUE self) {
@@ -280,7 +295,7 @@ VALUE vec2_to_vec3(int argc, VALUE *argv, VALUE self) {
   rb_scan_args(argc, argv, "01", &vz);
   VALUE vec3_class = rb_const_get(mLarb, rb_intern("Vec3"));
   return rb_funcall(vec3_class, rb_intern("new"), 3, DBL2NUM(a->x),
-                    DBL2NUM(a->y), NIL_P(vz) ? DBL2NUM(0.0) : vz);
+                    DBL2NUM(a->y), argc == 0 ? DBL2NUM(0.0) : vz);
 }
 
 VALUE vec2_inspect(VALUE self) {
@@ -295,11 +310,19 @@ VALUE vec2_inspect(VALUE self) {
   return str;
 }
 
+static VALUE vec2_initialize_copy(VALUE self, VALUE other) {
+  if (self == other) return self;
+  rb_obj_init_copy(self, other);
+  *vec2_get(self) = *vec2_get(other);
+  return self;
+}
+
 void Init_vec2(VALUE module) {
   cVec2 = rb_define_class_under(module, "Vec2", rb_cObject);
 
   rb_define_alloc_func(cVec2, vec2_alloc);
   rb_define_method(cVec2, "initialize", vec2_initialize, -1);
+  rb_define_method(cVec2, "initialize_copy", vec2_initialize_copy, 1);
 
   rb_define_singleton_method(cVec2, "[]", vec2_class_bracket, 2);
   rb_define_singleton_method(cVec2, "zero", vec2_class_zero, 0);
