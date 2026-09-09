@@ -21,11 +21,6 @@ static const rb_data_type_t quat_type = {
 static VALUE cQuat = Qnil;
 static VALUE cVec3 = Qnil;
 
-static double value_to_double(VALUE value) {
-  VALUE coerced = rb_funcall(value, rb_intern("to_f"), 0);
-  return NUM2DBL(coerced);
-}
-
 static QuatData *quat_get(VALUE obj) {
   QuatData *data = NULL;
   TypedData_Get_Struct(obj, QuatData, &quat_type, data);
@@ -53,11 +48,19 @@ static double clamp_double(double value, double min, double max) {
 }
 
 static void normalize_quat(double *x, double *y, double *z, double *w) {
-  double len = sqrt((*x) * (*x) + (*y) * (*y) + (*z) * (*z) + (*w) * (*w));
-  *x /= len;
-  *y /= len;
-  *z /= len;
-  *w /= len;
+  double values[4] = {*x, *y, *z, *w};
+  larb_normalize(values, 4);
+  *x = values[0];
+  *y = values[1];
+  *z = values[2];
+  *w = values[3];
+}
+
+static VALUE quat_initialize_copy(VALUE self, VALUE other) {
+  if (self == other) return self;
+  rb_obj_init_copy(self, other);
+  *quat_get(self) = *quat_get(other);
+  return self;
 }
 
 VALUE quat_alloc(VALUE klass) {
@@ -70,6 +73,7 @@ VALUE quat_alloc(VALUE klass) {
 }
 
 VALUE quat_initialize(int argc, VALUE *argv, VALUE self) {
+  rb_check_frozen(self);
   VALUE vx = Qnil;
   VALUE vy = Qnil;
   VALUE vz = Qnil;
@@ -77,18 +81,20 @@ VALUE quat_initialize(int argc, VALUE *argv, VALUE self) {
   QuatData *data = quat_get(self);
 
   rb_scan_args(argc, argv, "04", &vx, &vy, &vz, &vw);
-  data->x = NIL_P(vx) ? 0.0 : value_to_double(vx);
-  data->y = NIL_P(vy) ? 0.0 : value_to_double(vy);
-  data->z = NIL_P(vz) ? 0.0 : value_to_double(vz);
-  data->w = NIL_P(vw) ? 1.0 : value_to_double(vw);
+  QuatData values = {argc > 0 ? NUM2DBL(vx) : 0.0,
+                     argc > 1 ? NUM2DBL(vy) : 0.0,
+                     argc > 2 ? NUM2DBL(vz) : 0.0,
+                     argc > 3 ? NUM2DBL(vw) : 1.0};
+  rb_check_frozen(self);
+  *data = values;
 
   return self;
 }
 
 static VALUE quat_class_bracket(VALUE klass, VALUE x, VALUE y, VALUE z,
                                 VALUE w) {
-  return quat_build(klass, value_to_double(x), value_to_double(y),
-                    value_to_double(z), value_to_double(w));
+  return quat_build(klass, NUM2DBL(x), NUM2DBL(y),
+                    NUM2DBL(z), NUM2DBL(w));
 }
 
 static VALUE quat_class_identity(VALUE klass) {
@@ -97,19 +103,19 @@ static VALUE quat_class_identity(VALUE klass) {
 
 static VALUE quat_class_from_axis_angle(VALUE klass, VALUE axis,
                                         VALUE radians) {
-  double half = value_to_double(radians) * 0.5;
+  double half = NUM2DBL(radians) * 0.5;
   double s = sin(half);
   VALUE normalized = rb_funcall(axis, rb_intern("normalize"), 0);
-  double x = value_to_double(rb_funcall(normalized, rb_intern("x"), 0));
-  double y = value_to_double(rb_funcall(normalized, rb_intern("y"), 0));
-  double z = value_to_double(rb_funcall(normalized, rb_intern("z"), 0));
+  double x = NUM2DBL(rb_funcall(normalized, rb_intern("x"), 0));
+  double y = NUM2DBL(rb_funcall(normalized, rb_intern("y"), 0));
+  double z = NUM2DBL(rb_funcall(normalized, rb_intern("z"), 0));
   return quat_build(klass, x * s, y * s, z * s, cos(half));
 }
 
 static VALUE quat_class_from_euler(VALUE klass, VALUE x, VALUE y, VALUE z) {
-  double rx = value_to_double(x) * 0.5;
-  double ry = value_to_double(y) * 0.5;
-  double rz = value_to_double(z) * 0.5;
+  double rx = NUM2DBL(x) * 0.5;
+  double ry = NUM2DBL(y) * 0.5;
+  double rz = NUM2DBL(z) * 0.5;
   double cx = cos(rx);
   double sx = sin(rx);
   double cy = cos(ry);
@@ -136,15 +142,15 @@ static VALUE quat_class_look_rotation(int argc, VALUE *argv, VALUE klass) {
   VALUE up_final =
       rb_funcall(forward_norm, rb_intern("cross"), 1, right);
 
-  double m00 = value_to_double(rb_funcall(right, rb_intern("x"), 0));
-  double m01 = value_to_double(rb_funcall(up_final, rb_intern("x"), 0));
-  double m02 = value_to_double(rb_funcall(forward_norm, rb_intern("x"), 0));
-  double m10 = value_to_double(rb_funcall(right, rb_intern("y"), 0));
-  double m11 = value_to_double(rb_funcall(up_final, rb_intern("y"), 0));
-  double m12 = value_to_double(rb_funcall(forward_norm, rb_intern("y"), 0));
-  double m20 = value_to_double(rb_funcall(right, rb_intern("z"), 0));
-  double m21 = value_to_double(rb_funcall(up_final, rb_intern("z"), 0));
-  double m22 = value_to_double(rb_funcall(forward_norm, rb_intern("z"), 0));
+  double m00 = NUM2DBL(rb_funcall(right, rb_intern("x"), 0));
+  double m01 = NUM2DBL(rb_funcall(up_final, rb_intern("x"), 0));
+  double m02 = NUM2DBL(rb_funcall(forward_norm, rb_intern("x"), 0));
+  double m10 = NUM2DBL(rb_funcall(right, rb_intern("y"), 0));
+  double m11 = NUM2DBL(rb_funcall(up_final, rb_intern("y"), 0));
+  double m12 = NUM2DBL(rb_funcall(forward_norm, rb_intern("y"), 0));
+  double m20 = NUM2DBL(rb_funcall(right, rb_intern("z"), 0));
+  double m21 = NUM2DBL(rb_funcall(up_final, rb_intern("z"), 0));
+  double m22 = NUM2DBL(rb_funcall(forward_norm, rb_intern("z"), 0));
 
   double trace = m00 + m11 + m22;
   if (trace > 0.0) {
@@ -173,8 +179,11 @@ static VALUE quat_get_x(VALUE self) {
 }
 
 static VALUE quat_set_x(VALUE self, VALUE value) {
+  rb_check_frozen(self);
   QuatData *data = quat_get(self);
-  data->x = value_to_double(value);
+  double number = NUM2DBL(value);
+  rb_check_frozen(self);
+  data->x = number;
   return value;
 }
 
@@ -184,8 +193,11 @@ static VALUE quat_get_y(VALUE self) {
 }
 
 static VALUE quat_set_y(VALUE self, VALUE value) {
+  rb_check_frozen(self);
   QuatData *data = quat_get(self);
-  data->y = value_to_double(value);
+  double number = NUM2DBL(value);
+  rb_check_frozen(self);
+  data->y = number;
   return value;
 }
 
@@ -195,8 +207,11 @@ static VALUE quat_get_z(VALUE self) {
 }
 
 static VALUE quat_set_z(VALUE self, VALUE value) {
+  rb_check_frozen(self);
   QuatData *data = quat_get(self);
-  data->z = value_to_double(value);
+  double number = NUM2DBL(value);
+  rb_check_frozen(self);
+  data->z = number;
   return value;
 }
 
@@ -206,8 +221,11 @@ static VALUE quat_get_w(VALUE self) {
 }
 
 static VALUE quat_set_w(VALUE self, VALUE value) {
+  rb_check_frozen(self);
   QuatData *data = quat_get(self);
-  data->w = value_to_double(value);
+  double number = NUM2DBL(value);
+  rb_check_frozen(self);
+  data->w = number;
   return value;
 }
 
@@ -224,9 +242,9 @@ VALUE quat_mul(VALUE self, VALUE other) {
   }
 
   if (rb_obj_is_kind_of(other, cVec3)) {
-    double vx = value_to_double(rb_funcall(other, rb_intern("x"), 0));
-    double vy = value_to_double(rb_funcall(other, rb_intern("y"), 0));
-    double vz = value_to_double(rb_funcall(other, rb_intern("z"), 0));
+    double vx = NUM2DBL(rb_funcall(other, rb_intern("x"), 0));
+    double vy = NUM2DBL(rb_funcall(other, rb_intern("y"), 0));
+    double vz = NUM2DBL(rb_funcall(other, rb_intern("z"), 0));
 
     double uvx = a->y * vz - a->z * vy;
     double uvy = a->z * vx - a->x * vz;
@@ -245,12 +263,12 @@ VALUE quat_mul(VALUE self, VALUE other) {
   }
 
   if (rb_obj_is_kind_of(other, rb_cNumeric)) {
-    double s = value_to_double(other);
+    double s = NUM2DBL(other);
     return quat_build(rb_obj_class(self), a->x * s, a->y * s, a->z * s,
                       a->w * s);
   }
 
-  return Qnil;
+  rb_raise(rb_eTypeError, "expected Quat, Vec3, or Numeric");
 }
 
 VALUE quat_add(VALUE self, VALUE other) {
@@ -280,7 +298,7 @@ VALUE quat_dot(VALUE self, VALUE other) {
 
 VALUE quat_length(VALUE self) {
   QuatData *a = quat_get(self);
-  return DBL2NUM(sqrt(a->x * a->x + a->y * a->y + a->z * a->z + a->w * a->w));
+  return DBL2NUM(hypot(hypot(a->x, a->y), hypot(a->z, a->w)));
 }
 
 VALUE quat_length_squared(VALUE self) {
@@ -299,6 +317,7 @@ VALUE quat_normalize(VALUE self) {
 }
 
 VALUE quat_normalize_bang(VALUE self) {
+  rb_check_frozen(self);
   QuatData *a = quat_get(self);
   normalize_quat(&a->x, &a->y, &a->z, &a->w);
   return self;
@@ -311,27 +330,44 @@ VALUE quat_conjugate(VALUE self) {
 
 VALUE quat_inverse(VALUE self) {
   QuatData *a = quat_get(self);
-  double len_sq = a->x * a->x + a->y * a->y + a->z * a->z + a->w * a->w;
-  return quat_build(rb_obj_class(self), -a->x / len_sq, -a->y / len_sq,
-                    -a->z / len_sq, a->w / len_sq);
+  double values[4] = {a->x, a->y, a->z, a->w};
+  larb_normalize(values, 4);
+  double scale = fmax(fmax(fabs(a->x), fabs(a->y)),
+                      fmax(fabs(a->z), fabs(a->w)));
+  double len = hypot(hypot(a->x / scale, a->y / scale),
+                     hypot(a->z / scale, a->w / scale));
+  return quat_build(rb_obj_class(self), -values[0] / len / scale,
+                    -values[1] / len / scale, -values[2] / len / scale,
+                    values[3] / len / scale);
 }
 
 VALUE quat_lerp(VALUE self, VALUE other, VALUE t) {
-  QuatData *a = quat_get(self);
-  QuatData *b = quat_get(other);
-  double s = value_to_double(t);
-  double x = a->x + (b->x - a->x) * s;
-  double y = a->y + (b->y - a->y) * s;
-  double z = a->z + (b->z - a->z) * s;
-  double w = a->w + (b->w - a->w) * s;
+  QuatData a = *quat_get(self);
+  QuatData b = *quat_get(other);
+  double s = NUM2DBL(t);
+  normalize_quat(&a.x, &a.y, &a.z, &a.w);
+  normalize_quat(&b.x, &b.y, &b.z, &b.w);
+  double sign = a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w < 0.0
+                    ? -1.0 : 1.0;
+  double x = a.x + (sign * b.x - a.x) * s;
+  double y = a.y + (sign * b.y - a.y) * s;
+  double z = a.z + (sign * b.z - a.z) * s;
+  double w = a.w + (sign * b.w - a.w) * s;
   normalize_quat(&x, &y, &z, &w);
   return quat_build(rb_obj_class(self), x, y, z, w);
 }
 
 VALUE quat_slerp(VALUE self, VALUE other, VALUE t) {
-  QuatData *a = quat_get(self);
-  QuatData *b = quat_get(other);
-  double s = value_to_double(t);
+  QuatData left = *quat_get(self);
+  QuatData right = *quat_get(other);
+  normalize_quat(&left.x, &left.y, &left.z, &left.w);
+  normalize_quat(&right.x, &right.y, &right.z, &right.w);
+  QuatData *a = &left;
+  QuatData *b = &right;
+  double s = NUM2DBL(t);
+  if (!isfinite(s)) {
+    rb_raise(rb_eArgError, "interpolation amount must be finite");
+  }
   double dot = a->x * b->x + a->y * b->y + a->z * b->z + a->w * b->w;
 
   double ox = b->x;
@@ -362,23 +398,26 @@ VALUE quat_slerp(VALUE self, VALUE other, VALUE t) {
   double s0 = cos(theta) - dot * sin_theta / sin_theta0;
   double s1 = sin_theta / sin_theta0;
 
-  return quat_build(rb_obj_class(self), a->x * s0 + ox * s1,
-                    a->y * s0 + oy * s1, a->z * s0 + oz * s1,
-                    a->w * s0 + ow * s1);
+  double x = a->x * s0 + ox * s1;
+  double y = a->y * s0 + oy * s1;
+  double z = a->z * s0 + oz * s1;
+  double w = a->w * s0 + ow * s1;
+  normalize_quat(&x, &y, &z, &w);
+  return quat_build(rb_obj_class(self), x, y, z, w);
 }
 
 VALUE quat_to_axis_angle(VALUE self) {
-  QuatData *a = quat_get(self);
-  double w = clamp_double(a->w, -1.0, 1.0);
-  double angle = 2.0 * acos(w);
-  double s = sqrt(1.0 - w * w);
+  QuatData a = *quat_get(self);
+  normalize_quat(&a.x, &a.y, &a.z, &a.w);
+  double s = hypot(hypot(a.x, a.y), a.z);
+  double angle = 2.0 * atan2(s, a.w);
   VALUE axis;
-  if (s < 0.001) {
+  if (s == 0.0) {
     axis = rb_funcall(cVec3, rb_intern("new"), 3, DBL2NUM(1.0), DBL2NUM(0.0),
                       DBL2NUM(0.0));
   } else {
-    axis = rb_funcall(cVec3, rb_intern("new"), 3, DBL2NUM(a->x / s),
-                      DBL2NUM(a->y / s), DBL2NUM(a->z / s));
+    axis = rb_funcall(cVec3, rb_intern("new"), 3, DBL2NUM(a.x / s),
+                      DBL2NUM(a.y / s), DBL2NUM(a.z / s));
   }
   VALUE ary = rb_ary_new_capa(2);
   rb_ary_push(ary, axis);
@@ -447,7 +486,10 @@ VALUE quat_near(int argc, VALUE *argv, VALUE self) {
   rb_scan_args(argc, argv, "11", &other, &epsilon);
   QuatData *a = quat_get(self);
   QuatData *b = quat_get(other);
-  double eps = NIL_P(epsilon) ? 1e-6 : value_to_double(epsilon);
+  double eps = argc < 2 ? 1e-6 : NUM2DBL(epsilon);
+  if (!isfinite(eps) || eps <= 0.0) {
+    rb_raise(rb_eArgError, "epsilon must be finite and positive");
+  }
 
   if (fabs(a->x - b->x) < eps && fabs(a->y - b->y) < eps &&
       fabs(a->z - b->z) < eps && fabs(a->w - b->w) < eps) {
@@ -480,6 +522,8 @@ void Init_quat(VALUE module) {
 
   rb_define_alloc_func(cQuat, quat_alloc);
   rb_define_method(cQuat, "initialize", quat_initialize, -1);
+  rb_define_private_method(cQuat, "initialize_copy",
+                           quat_initialize_copy, 1);
 
   rb_define_singleton_method(cQuat, "[]", quat_class_bracket, 4);
   rb_define_singleton_method(cQuat, "identity", quat_class_identity, 0);

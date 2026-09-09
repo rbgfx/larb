@@ -158,4 +158,97 @@ class Quat2Test < Test::Unit::TestCase
     q = Larb::Quat2.identity
     assert_match(/Quat2/, q.inspect)
   end
+
+  def test_matrix_and_point_transform_agree
+    rotation = Larb::Quat.from_axis_angle(Larb::Vec3.forward, Math::PI / 2)
+    q = Larb::Quat2.from_rotation_translation(rotation, Larb::Vec3.new(1, 2, 3))
+    [Larb::Vec3.zero, Larb::Vec3.new(4, -2, 7)].each do |point|
+      actual = (q.to_mat4 * Larb::Vec4.new(*point.to_a, 1)).xyz
+      assert_components q.transform_point(point).to_a, actual
+    end
+    assert_components [1, 2, 3], q.to_mat4.extract_translation
+  end
+
+  def test_lerp_preserves_antipodal_rigid_transforms
+    rotation = Larb::Quat.from_axis_angle(Larb::Vec3.up, 0.7)
+    q = Larb::Quat2.from_rotation_translation(rotation, Larb::Vec3.new(1, 2, 3))
+    [0, 0.5, 1].each do |t|
+      result = (q * 1e200).lerp(q * -1e-200, t)
+      assert_components q.to_a, result
+      assert_components q.transform_point(Larb::Vec3.right).to_a,
+                        result.transform_point(Larb::Vec3.right)
+    end
+  end
+
+  def test_lerp_preserves_real_dual_orthogonality
+    a = Larb::Quat2.identity
+    b = Larb::Quat2.from_rotation_translation(Larb::Quat.new(0, 0, 1, 0), Larb::Vec3.new(0, 0, 2))
+    [0, 0.25, 0.5, 0.75, 1].each do |t|
+      q = a.lerp(b, t)
+      assert q.to_a.all?(&:finite?)
+      assert_in_delta 1.0, q.real.length, 1e-12
+      assert_in_delta 0.0, q.real.dot(q.dual), 1e-12
+      assert_components Larb::Quat2.identity.to_a, q * q.inverse
+    end
+  end
+
+  def test_normalization_removes_parallel_dual_component
+    q = Larb::Quat2.new([0, 0, 0, 2, 4, 6, 8, 10])
+    assert_components [0, 0, 0, 1, 2, 3, 4, 0], q.normalize
+    assert_same q, q.normalize!
+    assert_components [0, 0, 0, 1, 2, 3, 4, 0], q
+    assert_components Larb::Quat2.identity.to_a,
+                      Larb::Quat2.new([0, 0, 0, 1e-200, 0, 0, 0, 1e200]).normalize
+  end
+
+  def test_normalization_and_inverse_across_extreme_magnitudes
+    q = Larb::Quat2.from_translation(Larb::Vec3.new(1, 2, 3))
+    [1e200, 1e-200].each do |magnitude|
+      scaled = q * magnitude
+      assert_equal magnitude, scaled.length
+      assert_components q.to_a, scaled.normalize
+      assert_components Larb::Quat2.identity.to_a, scaled * scaled.inverse
+      assert_same scaled, scaled.normalize!
+      assert_components q.to_a, scaled
+    end
+    assert_components [0.5, 0.5, 0.5, 0.5, 0, 0, 0, 0],
+                      Larb::Quat2.new([Float::MAX] * 4 + [0] * 4).normalize
+  end
+
+  def test_normalization_preserves_subnormal_dual_components
+    magnitude = Float::MIN * Float::EPSILON
+    q = Larb::Quat2.new([magnitude] * 4 + [magnitude, -magnitude] * 2)
+    expected = [0.5] * 4 + [0.5, -0.5] * 2
+    assert_components expected, q.normalize
+    assert_same q, q.normalize!
+    assert_components expected, q
+  end
+
+  def test_inverse_supports_nonorthogonal_dual_quaternions
+    q = Larb::Quat2.new([2, 3, 4, 5, 6, 7, 8, 9])
+    assert_components Larb::Quat2.identity.to_a, q * q.inverse
+    assert_components Larb::Quat2.identity.to_a, q.inverse * q
+  end
+
+  def test_degenerate_dual_quaternions_are_rejected_atomically
+    [[0] * 8, [0, 0, 0, Float::INFINITY, 0, 0, 0, 0],
+     [0, 0, 0, 2, 3, Float::INFINITY, 0, 0]].each do |values|
+      q = Larb::Quat2.new(values)
+      %i[normalize normalize! inverse].each do |method|
+        assert_raise(ArgumentError) { q.public_send(method) }
+        assert_equal values, q.to_a
+      end
+      assert_raise(ArgumentError) { Larb::Quat2.identity.lerp(q, 0.5) }
+    end
+  end
+
+  private
+
+  def assert_components(expected, actual)
+    assert_equal expected.size, actual.to_a.size
+    expected.zip(actual.to_a).each do |wanted, value|
+      assert value.finite?, "expected finite component, got #{value.inspect}"
+      assert_in_delta wanted, value, 1e-10
+    end
+  end
 end

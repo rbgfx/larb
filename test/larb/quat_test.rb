@@ -221,4 +221,64 @@ class QuatTest < Test::Unit::TestCase
     q = Larb::Quat.new(1, 2, 3, 4)
     assert_equal q.inspect, q.to_s
   end
+
+  def test_interpolation_preserves_antipodal_rotations
+    q = Larb::Quat.from_axis_angle(Larb::Vec3.up, 0.7)
+    %i[lerp slerp].each do |method|
+      [0, 0.5, 1].each do |t|
+        result = (q * 1e200).public_send(method, q * -1e-200, t)
+        assert_components q.to_a, result
+        assert_in_delta 1.0, result.length, 1e-12
+      end
+      assert_raise(ArgumentError) { q.public_send(method, Larb::Quat.new(0, 0, 0, 0), 0.5) }
+      assert_raise(ArgumentError) { q.public_send(method, q, Float::NAN) }
+    end
+  end
+
+  def test_normalization_and_inverse_across_extreme_magnitudes
+    [1e200, 1e-200, Float::MAX, Float::MIN].each do |magnitude|
+      q = Larb::Quat.new(magnitude, 0, 0, 0)
+      assert_equal magnitude, q.length
+      assert_components [1, 0, 0, 0], q.normalize
+      assert_components [0, 0, 0, 1], q * q.inverse
+      assert_same q, q.normalize!
+      assert_components [1, 0, 0, 0], q
+    end
+    assert_components [0.5, 0.5, 0.5, 0.5], Larb::Quat.new(*[Float::MAX] * 4).normalize
+  end
+
+  def test_degenerate_quaternions_cannot_be_normalized_or_inverted
+    [0, Float::INFINITY, Float::NAN].each do |value|
+      q = Larb::Quat.new(value, 0, 0, 0)
+      %i[normalize normalize! inverse to_axis_angle].each do |method|
+        assert_raise(ArgumentError) { q.public_send(method) }
+      end
+      assert_equal [0.0, 0.0, 0.0], q.to_a.drop(1)
+      value.is_a?(Float) && value.nan? ? assert(q.x.nan?) : assert_equal(value, q.x)
+    end
+  end
+
+  def test_small_axis_angles_round_trip
+    [1e-3, 1e-12, 1e-200].each do |angle|
+      q = Larb::Quat.from_axis_angle(Larb::Vec3.up, angle)
+      axis, actual_angle = q.to_axis_angle
+      assert_components [0, 1, 0], axis
+      assert actual_angle.finite?
+      assert_in_delta angle, actual_angle, angle * 1e-12
+      assert_components q.to_a, Larb::Quat.from_axis_angle(axis, actual_angle)
+    end
+    axis, angle = Larb::Quat.identity.to_axis_angle
+    assert_components [1, 0, 0], axis
+    assert_equal 0.0, angle
+  end
+
+  private
+
+  def assert_components(expected, actual)
+    assert_equal expected.size, actual.to_a.size
+    expected.zip(actual.to_a).each do |wanted, value|
+      assert value.finite?, "expected finite component, got #{value.inspect}"
+      assert_in_delta wanted, value, 1e-10
+    end
+  end
 end

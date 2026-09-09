@@ -23,15 +23,57 @@ static VALUE cQuat = Qnil;
 static VALUE cVec3 = Qnil;
 static VALUE cMat4 = Qnil;
 
-static double value_to_double(VALUE value) {
-  VALUE coerced = rb_funcall(value, rb_intern("to_f"), 0);
-  return NUM2DBL(coerced);
-}
-
 static Quat2Data *quat2_get(VALUE obj) {
   Quat2Data *data = NULL;
   TypedData_Get_Struct(obj, Quat2Data, &quat2_type, data);
   return data;
+}
+
+static VALUE quat2_initialize_copy(VALUE self, VALUE other) {
+  if (self == other) return self;
+  rb_obj_init_copy(self, other);
+  *quat2_get(self) = *quat2_get(other);
+  return self;
+}
+
+static void normalize_quat2(double *values) {
+  for (int i = 0; i < 8; i++) {
+    if (!isfinite(values[i])) {
+      rb_raise(rb_eArgError, "dual quaternion must be finite");
+    }
+  }
+  double scale = 0.0;
+  for (int i = 0; i < 4; i++) {
+    scale = fmax(scale, fabs(values[i]));
+  }
+  if (scale == 0.0) {
+    rb_raise(rb_eArgError, "real quaternion must be nonzero");
+  }
+  for (int i = 0; i < 4; i++) {
+    values[i] /= scale;
+  }
+  double len = hypot(hypot(values[0], values[1]), hypot(values[2], values[3]));
+  double dual_scale = 0.0;
+  for (int i = 0; i < 4; i++) {
+    values[i] /= len;
+    dual_scale = fmax(dual_scale, fabs(values[i + 4]));
+  }
+  if (dual_scale > 0.0) {
+    /* Remove the parallel component before scaling by the real length. */
+    double dot = 0.0;
+    for (int i = 0; i < 4; i++) {
+      dot += values[i] * (values[i + 4] / dual_scale);
+    }
+    double ratio = dual_scale / scale;
+    for (int i = 0; i < 4; i++) {
+      double component = (values[i + 4] / dual_scale - values[i] * dot) / len;
+      values[i + 4] = isfinite(ratio) ? component * ratio
+                                     : component * dual_scale / scale;
+      if (!isfinite(values[i + 4])) {
+        rb_raise(rb_eArgError, "normalized dual quaternion is not finite");
+      }
+    }
+  }
 }
 
 static VALUE quat2_build(VALUE klass, const double *values) {
@@ -56,13 +98,13 @@ static VALUE quat2_class_identity(VALUE klass) {
 
 static VALUE quat2_class_from_rotation_translation(VALUE klass, VALUE rotation,
                                                    VALUE translation) {
-  double rx = value_to_double(rb_funcall(rotation, rb_intern("x"), 0));
-  double ry = value_to_double(rb_funcall(rotation, rb_intern("y"), 0));
-  double rz = value_to_double(rb_funcall(rotation, rb_intern("z"), 0));
-  double rw = value_to_double(rb_funcall(rotation, rb_intern("w"), 0));
-  double tx = value_to_double(rb_funcall(translation, rb_intern("x"), 0));
-  double ty = value_to_double(rb_funcall(translation, rb_intern("y"), 0));
-  double tz = value_to_double(rb_funcall(translation, rb_intern("z"), 0));
+  double rx = NUM2DBL(rb_funcall(rotation, rb_intern("x"), 0));
+  double ry = NUM2DBL(rb_funcall(rotation, rb_intern("y"), 0));
+  double rz = NUM2DBL(rb_funcall(rotation, rb_intern("z"), 0));
+  double rw = NUM2DBL(rb_funcall(rotation, rb_intern("w"), 0));
+  double tx = NUM2DBL(rb_funcall(translation, rb_intern("x"), 0));
+  double ty = NUM2DBL(rb_funcall(translation, rb_intern("y"), 0));
+  double tz = NUM2DBL(rb_funcall(translation, rb_intern("z"), 0));
 
   return quat2_build8(
       klass, rx, ry, rz, rw, (tx * rw + ty * rz - tz * ry) * 0.5,
@@ -77,10 +119,10 @@ static VALUE quat2_class_from_translation(VALUE klass, VALUE translation) {
 }
 
 static VALUE quat2_class_from_rotation(VALUE klass, VALUE rotation) {
-  double rx = value_to_double(rb_funcall(rotation, rb_intern("x"), 0));
-  double ry = value_to_double(rb_funcall(rotation, rb_intern("y"), 0));
-  double rz = value_to_double(rb_funcall(rotation, rb_intern("z"), 0));
-  double rw = value_to_double(rb_funcall(rotation, rb_intern("w"), 0));
+  double rx = NUM2DBL(rb_funcall(rotation, rb_intern("x"), 0));
+  double ry = NUM2DBL(rb_funcall(rotation, rb_intern("y"), 0));
+  double rz = NUM2DBL(rb_funcall(rotation, rb_intern("z"), 0));
+  double rw = NUM2DBL(rb_funcall(rotation, rb_intern("w"), 0));
   return quat2_build8(klass, rx, ry, rz, rw, 0.0, 0.0, 0.0, 0.0);
 }
 
@@ -104,31 +146,26 @@ VALUE quat2_alloc(VALUE klass) {
 }
 
 VALUE quat2_initialize(int argc, VALUE *argv, VALUE self) {
+  rb_check_frozen(self);
   VALUE data_arg = Qnil;
   Quat2Data *data = quat2_get(self);
+  Quat2Data values = {{0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0}};
 
   rb_scan_args(argc, argv, "01", &data_arg);
-  if (NIL_P(data_arg)) {
-    data->data[0] = 0.0;
-    data->data[1] = 0.0;
-    data->data[2] = 0.0;
-    data->data[3] = 1.0;
-    data->data[4] = 0.0;
-    data->data[5] = 0.0;
-    data->data[6] = 0.0;
-    data->data[7] = 0.0;
-    return self;
+  if (argc > 0) {
+    VALUE ary = rb_check_array_type(data_arg);
+    if (NIL_P(ary)) {
+      rb_raise(rb_eTypeError, "expected Array");
+    }
+    if (RARRAY_LEN(ary) != 8) {
+      rb_raise(rb_eArgError, "expected 8 components");
+    }
+    for (int i = 0; i < 8; i++) {
+      values.data[i] = NUM2DBL(rb_ary_entry(ary, i));
+    }
   }
-
-  VALUE ary = rb_check_array_type(data_arg);
-  if (NIL_P(ary)) {
-    rb_raise(rb_eTypeError, "expected Array");
-  }
-
-  for (int i = 0; i < 8; i++) {
-    data->data[i] = value_to_double(rb_ary_entry(ary, i));
-  }
-
+  rb_check_frozen(self);
+  *data = values;
   return self;
 }
 
@@ -156,12 +193,15 @@ VALUE quat2_aref(VALUE self, VALUE index) {
 }
 
 VALUE quat2_aset(VALUE self, VALUE index, VALUE value) {
+  rb_check_frozen(self);
   Quat2Data *data = quat2_get(self);
   long idx = NUM2LONG(index);
   if (idx < 0 || idx > 7) {
     rb_raise(rb_eIndexError, "index %ld out of range", idx);
   }
-  data->data[idx] = value_to_double(value);
+  double number = NUM2DBL(value);
+  rb_check_frozen(self);
+  data->data[idx] = number;
   return value;
 }
 
@@ -208,7 +248,7 @@ VALUE quat2_mul(VALUE self, VALUE other) {
   }
 
   if (rb_obj_is_kind_of(other, rb_cNumeric)) {
-    double s = value_to_double(other);
+    double s = NUM2DBL(other);
     double values[8];
     for (int i = 0; i < 8; i++) {
       values[i] = a->data[i] * s;
@@ -216,7 +256,7 @@ VALUE quat2_mul(VALUE self, VALUE other) {
     return quat2_build(rb_obj_class(self), values);
   }
 
-  return Qnil;
+  rb_raise(rb_eTypeError, "expected Quat2, Vec3, or Numeric");
 }
 
 VALUE quat2_add(VALUE self, VALUE other) {
@@ -254,40 +294,22 @@ VALUE quat2_length_squared(VALUE self) {
 }
 
 VALUE quat2_length(VALUE self) {
-  double len_sq = NUM2DBL(quat2_length_squared(self));
-  return DBL2NUM(sqrt(len_sq));
+  Quat2Data *a = quat2_get(self);
+  return DBL2NUM(hypot(hypot(a->data[0], a->data[1]),
+                       hypot(a->data[2], a->data[3])));
 }
 
 VALUE quat2_normalize(VALUE self) {
-  Quat2Data *a = quat2_get(self);
-  double len = sqrt(a->data[0] * a->data[0] + a->data[1] * a->data[1] +
-                    a->data[2] * a->data[2] + a->data[3] * a->data[3]);
-  if (len < 1e-10) {
-    double values[8];
-    for (int i = 0; i < 8; i++) {
-      values[i] = a->data[i];
-    }
-    return quat2_build(rb_obj_class(self), values);
-  }
-  double inv_len = 1.0 / len;
-  double values[8];
-  for (int i = 0; i < 8; i++) {
-    values[i] = a->data[i] * inv_len;
-  }
-  return quat2_build(rb_obj_class(self), values);
+  Quat2Data values = *quat2_get(self);
+  normalize_quat2(values.data);
+  return quat2_build(rb_obj_class(self), values.data);
 }
 
 VALUE quat2_normalize_bang(VALUE self) {
-  Quat2Data *a = quat2_get(self);
-  double len = sqrt(a->data[0] * a->data[0] + a->data[1] * a->data[1] +
-                    a->data[2] * a->data[2] + a->data[3] * a->data[3]);
-  if (len < 1e-10) {
-    return self;
-  }
-  double inv_len = 1.0 / len;
-  for (int i = 0; i < 8; i++) {
-    a->data[i] *= inv_len;
-  }
+  rb_check_frozen(self);
+  Quat2Data values = *quat2_get(self);
+  normalize_quat2(values.data);
+  *quat2_get(self) = values;
   return self;
 }
 
@@ -300,17 +322,21 @@ VALUE quat2_conjugate(VALUE self) {
 
 VALUE quat2_inverse(VALUE self) {
   Quat2Data *a = quat2_get(self);
-  double len_sq = a->data[0] * a->data[0] + a->data[1] * a->data[1] +
-                  a->data[2] * a->data[2] + a->data[3] * a->data[3];
-  if (len_sq < 1e-10) {
-    return quat2_conjugate(self);
-  }
-  VALUE conj = quat2_conjugate(self);
-  Quat2Data *c = quat2_get(conj);
-  double inv_len = 1.0 / len_sq;
-  double values[8];
   for (int i = 0; i < 8; i++) {
-    values[i] = c->data[i] * inv_len;
+    if (!isfinite(a->data[i])) {
+      rb_raise(rb_eArgError, "dual quaternion must be finite");
+    }
+  }
+  VALUE real_inverse = rb_funcall(quat2_real(self), rb_intern("inverse"), 0);
+  VALUE dual_inverse = rb_funcall(real_inverse, rb_intern("*"), 1, quat2_dual(self));
+  dual_inverse = rb_funcall(dual_inverse, rb_intern("*"), 1, real_inverse);
+  VALUE real = rb_funcall(real_inverse, rb_intern("to_a"), 0);
+  VALUE dual = rb_funcall(dual_inverse, rb_intern("to_a"), 0);
+  /* (r + epsilon d)^-1 = r^-1 - epsilon r^-1 d r^-1. */
+  double values[8];
+  for (int i = 0; i < 4; i++) {
+    values[i] = NUM2DBL(rb_ary_entry(real, i));
+    values[i + 4] = -NUM2DBL(rb_ary_entry(dual, i));
   }
   return quat2_build(rb_obj_class(self), values);
 }
@@ -347,15 +373,22 @@ VALUE quat2_transform_point(VALUE self, VALUE point) {
 }
 
 VALUE quat2_lerp(VALUE self, VALUE other, VALUE t) {
-  Quat2Data *a = quat2_get(self);
-  Quat2Data *b = quat2_get(other);
-  double s = value_to_double(t);
+  Quat2Data a = *quat2_get(self);
+  Quat2Data b = *quat2_get(other);
+  double s = NUM2DBL(t);
+  normalize_quat2(a.data);
+  normalize_quat2(b.data);
+  double dot = 0.0;
+  for (int i = 0; i < 4; i++) {
+    dot += a.data[i] * b.data[i];
+  }
+  double sign = dot < 0.0 ? -1.0 : 1.0;
   double values[8];
   for (int i = 0; i < 8; i++) {
-    values[i] = a->data[i] + (b->data[i] - a->data[i]) * s;
+    values[i] = a.data[i] + (sign * b.data[i] - a.data[i]) * s;
   }
-  VALUE out = quat2_build(rb_obj_class(self), values);
-  return quat2_normalize(out);
+  normalize_quat2(values);
+  return quat2_build(rb_obj_class(self), values);
 }
 
 VALUE quat2_to_mat4(VALUE self) {
@@ -367,7 +400,7 @@ VALUE quat2_to_mat4(VALUE self) {
                  rb_funcall(trans, rb_intern("x"), 0),
                  rb_funcall(trans, rb_intern("y"), 0),
                  rb_funcall(trans, rb_intern("z"), 0));
-  return rb_funcall(rot_m, rb_intern("*"), 1, trans_m);
+  return rb_funcall(trans_m, rb_intern("*"), 1, rot_m);
 }
 
 VALUE quat2_to_a(VALUE self) {
@@ -404,10 +437,13 @@ VALUE quat2_near(int argc, VALUE *argv, VALUE self) {
   rb_scan_args(argc, argv, "11", &other, &epsilon);
   Quat2Data *a = quat2_get(self);
   Quat2Data *b = quat2_get(other);
-  double eps = NIL_P(epsilon) ? 1e-6 : value_to_double(epsilon);
+  double eps = argc < 2 ? 1e-6 : NUM2DBL(epsilon);
+  if (!isfinite(eps) || eps <= 0.0) {
+    rb_raise(rb_eArgError, "epsilon must be finite and positive");
+  }
 
   for (int i = 0; i < 8; i++) {
-    if (fabs(a->data[i] - b->data[i]) >= eps) {
+    if (!(fabs(a->data[i] - b->data[i]) < eps)) {
       return Qfalse;
     }
   }
@@ -435,6 +471,8 @@ void Init_quat2(VALUE module) {
 
   rb_define_alloc_func(cQuat2, quat2_alloc);
   rb_define_method(cQuat2, "initialize", quat2_initialize, -1);
+  rb_define_private_method(cQuat2, "initialize_copy",
+                           quat2_initialize_copy, 1);
 
   rb_define_singleton_method(cQuat2, "identity", quat2_class_identity, 0);
   rb_define_singleton_method(cQuat2, "from_rotation_translation",
