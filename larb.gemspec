@@ -10,7 +10,7 @@ Gem::Specification.new do |spec|
 
   spec.summary = "Linear algebra library for 2D/3D graphics in Ruby"
   spec.description = "Larb provides vectors, matrices, quaternions, and Color classes for 2D/3D graphics and mathematical computations"
-  spec.homepage = "https://github.com/ydah/larb"
+  spec.homepage = "https://github.com/rbgfx/larb"
   spec.license = "MIT"
   spec.required_ruby_version = ">= 3.1.0"
 
