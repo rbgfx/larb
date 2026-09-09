@@ -267,4 +267,81 @@ class Mat4Test < Test::Unit::TestCase
     m = Larb::Mat4.identity
     assert_match(/Mat4/, m.inspect)
   end
+
+  def test_trs_applies_scale_rotation_then_translation
+    matrix = Larb::Mat4.trs(
+      Larb::Vec3.new(1, 2, 3),
+      Larb::Quat.from_axis_angle(Larb::Vec3.back, Math::PI / 2),
+      Larb::Vec3.new(2, 3, 4)
+    )
+    assert_finite_close [1, 2, 3], matrix.extract_translation.to_a
+    assert_finite_close [-2, 4, 7, 1], (matrix * Larb::Vec4.new(1, 1, 1, 1)).to_a
+  end
+
+  def test_decomposition_round_trips_signed_scales
+    rotations = [Larb::Quat.identity] + [Larb::Vec3.right, Larb::Vec3.up, Larb::Vec3.forward].map do |axis|
+      Larb::Quat.from_axis_angle(axis, Math::PI)
+    end
+    rotations << Larb::Quat.from_axis_angle(Larb::Vec3.new(1, 2, 3), 1.2)
+    [-1, 1].repeated_permutation(3) do |signs|
+      rotations.each do |rotation|
+        scale = Larb::Vec3.new(signs[0] * 2, signs[1] * 3, signs[2] * 4)
+        matrix = Larb::Mat4.trs(Larb::Vec3.new(1, 2, 3), rotation, scale)
+        extracted_rotation = matrix.extract_rotation
+        extracted_scale = matrix.extract_scale
+        assert extracted_rotation.to_a.all?(&:finite?)
+        assert_in_delta 1.0, extracted_rotation.length, 1e-12
+        assert_equal signs.inject(:*) < 0, extracted_scale.x < 0
+        rebuilt = Larb::Mat4.trs(matrix.extract_translation, extracted_rotation, extracted_scale)
+        assert_finite_close matrix.to_a, rebuilt.to_a
+      end
+    end
+  end
+
+  def test_decomposition_handles_extreme_scales
+    [1e-200, 1e200].each do |magnitude|
+      matrix = Larb::Mat4.scaling(-magnitude, magnitude, magnitude)
+      scale = matrix.extract_scale
+      assert_finite_close [-1, 1, 1], scale.to_a.map { |value| value / magnitude }
+      assert_finite_close [0, 0, 0, 1], matrix.extract_rotation.to_a
+    end
+  end
+
+  def test_decomposition_rejects_unsupported_matrices
+    shear = Larb::Mat4.identity
+    shear[4] = 0.5
+    nonfinite = Larb::Mat4.identity
+    nonfinite[0] = Float::NAN
+    matrices = [shear, nonfinite, Larb::Mat4.scaling(0, 1, 1),
+                Larb::Mat4.perspective(Math::PI / 4, 1, 0.1, 100)]
+    matrices.each do |matrix|
+      assert_raise(ArgumentError) { matrix.extract_rotation }
+      assert_raise(ArgumentError) { matrix.extract_scale }
+    end
+  end
+
+  def test_look_at_rejects_degenerate_directions
+    origin = Larb::Vec3.zero
+    assert_raise(ArgumentError) { Larb::Mat4.look_at(origin, origin, Larb::Vec3.up) }
+    assert_raise(ArgumentError) { Larb::Mat4.look_at(origin, Larb::Vec3.forward, origin) }
+    assert_raise(ArgumentError) { Larb::Mat4.look_at(origin, Larb::Vec3.forward, Larb::Vec3.forward) }
+    assert_raise(ArgumentError) do
+      Larb::Mat4.look_at(origin, Larb::Vec3.new(Float::NAN, 0, 1), Larb::Vec3.up)
+    end
+  end
+
+  def test_look_at_normalizes_extreme_directions
+    [1e-200, 1e200].each do |magnitude|
+      matrix = Larb::Mat4.look_at(Larb::Vec3.zero, Larb::Vec3.new(0, 0, -magnitude),
+                                 Larb::Vec3.new(0, magnitude, 0))
+      assert_finite_close Larb::Mat4.identity.to_a, matrix.to_a
+    end
+  end
+
+  private
+
+  def assert_finite_close(expected, actual)
+    assert actual.all?(&:finite?), actual.inspect
+    expected.zip(actual).each { |a, b| assert_in_delta a, b, 1e-9 }
+  end
 end

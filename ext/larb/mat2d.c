@@ -1,4 +1,5 @@
 #include "mat2d.h"
+#include "matrix_utils.h"
 
 #include <math.h>
 
@@ -21,11 +22,6 @@ static const rb_data_type_t mat2d_type = {
 static VALUE cMat2d = Qnil;
 static VALUE cVec2 = Qnil;
 static VALUE cMat3 = Qnil;
-
-static double value_to_double(VALUE value) {
-  VALUE coerced = rb_funcall(value, rb_intern("to_f"), 0);
-  return NUM2DBL(coerced);
-}
 
 static Mat2dData *mat2d_get(VALUE obj) {
   Mat2dData *data = NULL;
@@ -60,29 +56,31 @@ VALUE mat2d_alloc(VALUE klass) {
 }
 
 VALUE mat2d_initialize(int argc, VALUE *argv, VALUE self) {
+  rb_check_frozen(self);
   VALUE data_arg = Qnil;
-  Mat2dData *data = mat2d_get(self);
-
+  Mat2dData values = {{1.0, 0.0, 0.0, 1.0, 0.0, 0.0}};
   rb_scan_args(argc, argv, "01", &data_arg);
-  if (NIL_P(data_arg)) {
-    data->data[0] = 1.0;
-    data->data[1] = 0.0;
-    data->data[2] = 0.0;
-    data->data[3] = 1.0;
-    data->data[4] = 0.0;
-    data->data[5] = 0.0;
-    return self;
+  if (argc != 0) {
+    VALUE ary = rb_check_array_type(data_arg);
+    if (NIL_P(ary)) {
+      rb_raise(rb_eTypeError, "expected Array");
+    }
+    if (RARRAY_LEN(ary) != 6) {
+      rb_raise(rb_eArgError, "expected 6 elements");
+    }
+    for (int i = 0; i < 6; i++) {
+      values.data[i] = NUM2DBL(rb_ary_entry(ary, i));
+    }
   }
+  rb_check_frozen(self);
+  *mat2d_get(self) = values;
+  return self;
+}
 
-  VALUE ary = rb_check_array_type(data_arg);
-  if (NIL_P(ary)) {
-    rb_raise(rb_eTypeError, "expected Array");
-  }
-
-  for (int i = 0; i < 6; i++) {
-    data->data[i] = value_to_double(rb_ary_entry(ary, i));
-  }
-
+static VALUE mat2d_initialize_copy(VALUE self, VALUE other) {
+  if (self == other) return self;
+  rb_obj_init_copy(self, other);
+  *mat2d_get(self) = *mat2d_get(other);
   return self;
 }
 
@@ -95,33 +93,33 @@ static VALUE mat2d_class_zero(VALUE klass) {
 }
 
 static VALUE mat2d_class_translation(VALUE klass, VALUE x, VALUE y) {
-  return mat2d_build6(klass, 1.0, 0.0, 0.0, 1.0, value_to_double(x),
-                      value_to_double(y));
+  return mat2d_build6(klass, 1.0, 0.0, 0.0, 1.0, NUM2DBL(x),
+                      NUM2DBL(y));
 }
 
 static VALUE mat2d_class_rotation(VALUE klass, VALUE radians) {
-  double r = value_to_double(radians);
+  double r = NUM2DBL(radians);
   double c = cos(r);
   double s = sin(r);
   return mat2d_build6(klass, c, s, -s, c, 0.0, 0.0);
 }
 
 static VALUE mat2d_class_scaling(VALUE klass, VALUE x, VALUE y) {
-  return mat2d_build6(klass, value_to_double(x), 0.0, 0.0,
-                      value_to_double(y), 0.0, 0.0);
+  return mat2d_build6(klass, NUM2DBL(x), 0.0, 0.0,
+                      NUM2DBL(y), 0.0, 0.0);
 }
 
 static VALUE mat2d_class_from_rotation_translation_scale(VALUE klass,
                                                          VALUE rotation,
                                                          VALUE translation,
                                                          VALUE scale) {
-  double r = value_to_double(rotation);
+  double r = NUM2DBL(rotation);
   double c = cos(r);
   double s = sin(r);
-  double sx = value_to_double(rb_funcall(scale, rb_intern("x"), 0));
-  double sy = value_to_double(rb_funcall(scale, rb_intern("y"), 0));
-  double tx = value_to_double(rb_funcall(translation, rb_intern("x"), 0));
-  double ty = value_to_double(rb_funcall(translation, rb_intern("y"), 0));
+  double sx = NUM2DBL(rb_funcall(scale, rb_intern("x"), 0));
+  double sy = NUM2DBL(rb_funcall(scale, rb_intern("y"), 0));
+  double tx = NUM2DBL(rb_funcall(translation, rb_intern("x"), 0));
+  double ty = NUM2DBL(rb_funcall(translation, rb_intern("y"), 0));
 
   return mat2d_build6(klass, c * sx, s * sx, -s * sy, c * sy, tx, ty);
 }
@@ -136,12 +134,15 @@ VALUE mat2d_aref(VALUE self, VALUE index) {
 }
 
 VALUE mat2d_aset(VALUE self, VALUE index, VALUE value) {
+  rb_check_frozen(self);
   Mat2dData *data = mat2d_get(self);
   long idx = NUM2LONG(index);
   if (idx < 0 || idx > 5) {
     rb_raise(rb_eIndexError, "index %ld out of range", idx);
   }
-  data->data[idx] = value_to_double(value);
+  double component = NUM2DBL(value);
+  rb_check_frozen(self);
+  data->data[idx] = component;
   return value;
 }
 
@@ -161,8 +162,8 @@ VALUE mat2d_mul(VALUE self, VALUE other) {
   }
 
   if (rb_obj_is_kind_of(other, cVec2)) {
-    double x = value_to_double(rb_funcall(other, rb_intern("x"), 0));
-    double y = value_to_double(rb_funcall(other, rb_intern("y"), 0));
+    double x = NUM2DBL(rb_funcall(other, rb_intern("x"), 0));
+    double y = NUM2DBL(rb_funcall(other, rb_intern("y"), 0));
     VALUE vec2_class = rb_const_get(mLarb, rb_intern("Vec2"));
     return rb_funcall(vec2_class, rb_intern("new"), 2,
                       DBL2NUM(a->data[0] * x + a->data[2] * y + a->data[4]),
@@ -170,13 +171,13 @@ VALUE mat2d_mul(VALUE self, VALUE other) {
   }
 
   if (rb_obj_is_kind_of(other, rb_cNumeric)) {
-    double s = value_to_double(other);
+    double s = NUM2DBL(other);
     return mat2d_build6(rb_obj_class(self), a->data[0] * s, a->data[1] * s,
                         a->data[2] * s, a->data[3] * s, a->data[4] * s,
                         a->data[5] * s);
   }
 
-  return Qnil;
+  rb_raise(rb_eTypeError, "unsupported operand for Mat2d multiplication");
 }
 
 VALUE mat2d_add(VALUE self, VALUE other) {
@@ -203,25 +204,18 @@ VALUE mat2d_determinant(VALUE self) {
 }
 
 VALUE mat2d_inverse(VALUE self) {
-  Mat2dData *a = mat2d_get(self);
-  double det = a->data[0] * a->data[3] - a->data[1] * a->data[2];
-  if (fabs(det) < 1e-10) {
-    rb_raise(rb_eRuntimeError, "Matrix is not invertible");
-  }
-  double inv_det = 1.0 / det;
-  return mat2d_build6(rb_obj_class(self), a->data[3] * inv_det,
-                      -a->data[1] * inv_det, -a->data[2] * inv_det,
-                      a->data[0] * inv_det,
-                      (a->data[2] * a->data[5] - a->data[3] * a->data[4]) *
-                          inv_det,
-                      (a->data[1] * a->data[4] - a->data[0] * a->data[5]) *
-                          inv_det);
+  const double *a = mat2d_get(self)->data;
+  double values[9] = {a[0], a[1], 0.0, a[2], a[3], 0.0, a[4], a[5], 1.0};
+  double inverse[9];
+  larb_matrix_inverse(values, inverse, 3);
+  return mat2d_build6(rb_obj_class(self), inverse[0], inverse[1], inverse[3],
+                      inverse[4], inverse[6], inverse[7]);
 }
 
 VALUE mat2d_translate(VALUE self, VALUE x, VALUE y) {
   Mat2dData *a = mat2d_get(self);
-  double dx = value_to_double(x);
-  double dy = value_to_double(y);
+  double dx = NUM2DBL(x);
+  double dy = NUM2DBL(y);
   return mat2d_build6(rb_obj_class(self), a->data[0], a->data[1], a->data[2],
                       a->data[3], a->data[0] * dx + a->data[2] * dy + a->data[4],
                       a->data[1] * dx + a->data[3] * dy + a->data[5]);
@@ -234,8 +228,8 @@ VALUE mat2d_rotate(VALUE self, VALUE radians) {
 
 VALUE mat2d_scale(VALUE self, VALUE x, VALUE y) {
   Mat2dData *a = mat2d_get(self);
-  double sx = value_to_double(x);
-  double sy = value_to_double(y);
+  double sx = NUM2DBL(x);
+  double sy = NUM2DBL(y);
   return mat2d_build6(rb_obj_class(self), a->data[0] * sx, a->data[1] * sx,
                       a->data[2] * sy, a->data[3] * sy, a->data[4], a->data[5]);
 }
@@ -247,26 +241,45 @@ VALUE mat2d_extract_translation(VALUE self) {
                     DBL2NUM(a->data[5]));
 }
 
+static void mat2d_decompose(const Mat2dData *a, double *sx, double *sy) {
+  for (int i = 0; i < 6; i++) {
+    if (!isfinite(a->data[i])) {
+      rb_raise(rb_eArgError, "Cannot decompose non-finite components");
+    }
+  }
+  *sx = hypot(a->data[0], a->data[1]);
+  *sy = hypot(a->data[2], a->data[3]);
+  if (*sx == 0.0 || *sy == 0.0 || !isfinite(*sx) || !isfinite(*sy)) {
+    rb_raise(rb_eArgError, "Cannot decompose zero or non-finite scale");
+  }
+  double x0 = a->data[0] / *sx, y0 = a->data[1] / *sx;
+  double x1 = a->data[2] / *sy, y1 = a->data[3] / *sy;
+  if (fabs(x0 * x1 + y0 * y1) > 1e-6) {
+    rb_raise(rb_eArgError, "Cannot decompose shear");
+  }
+  if (x0 * y1 - y0 * x1 < 0.0) *sx = -*sx;
+}
+
 VALUE mat2d_extract_rotation(VALUE self) {
   Mat2dData *a = mat2d_get(self);
-  return DBL2NUM(atan2(a->data[1], a->data[0]));
+  double sx, sy;
+  mat2d_decompose(a, &sx, &sy);
+  return DBL2NUM(atan2(a->data[1] / sx, a->data[0] / sx));
 }
 
 VALUE mat2d_extract_scale(VALUE self) {
-  Mat2dData *a = mat2d_get(self);
-  double sx = sqrt(a->data[0] * a->data[0] + a->data[1] * a->data[1]);
-  double sy = sqrt(a->data[2] * a->data[2] + a->data[3] * a->data[3]);
-  VALUE vec2_class = rb_const_get(mLarb, rb_intern("Vec2"));
-  return rb_funcall(vec2_class, rb_intern("new"), 2, DBL2NUM(sx), DBL2NUM(sy));
+  double sx, sy;
+  mat2d_decompose(mat2d_get(self), &sx, &sy);
+  return rb_funcall(cVec2, rb_intern("new"), 2, DBL2NUM(sx), DBL2NUM(sy));
 }
 
 VALUE mat2d_frobenius_norm(VALUE self) {
   Mat2dData *a = mat2d_get(self);
-  double sum = 0.0;
+  double norm = 0.0;
   for (int i = 0; i < 6; i++) {
-    sum += a->data[i] * a->data[i];
+    norm = hypot(norm, a->data[i]);
   }
-  return DBL2NUM(sqrt(sum));
+  return DBL2NUM(norm);
 }
 
 VALUE mat2d_to_mat3(VALUE self) {
@@ -314,10 +327,13 @@ VALUE mat2d_near(int argc, VALUE *argv, VALUE self) {
   rb_scan_args(argc, argv, "11", &other, &epsilon);
   Mat2dData *a = mat2d_get(self);
   Mat2dData *b = mat2d_get(other);
-  double eps = NIL_P(epsilon) ? 1e-6 : value_to_double(epsilon);
+  double eps = argc < 2 ? 1e-6 : NUM2DBL(epsilon);
+  if (!isfinite(eps) || eps <= 0.0) {
+    rb_raise(rb_eArgError, "epsilon must be finite and positive");
+  }
 
   for (int i = 0; i < 6; i++) {
-    if (fabs(a->data[i] - b->data[i]) >= eps) {
+    if (!(fabs(a->data[i] - b->data[i]) < eps)) {
       return Qfalse;
     }
   }
@@ -346,6 +362,7 @@ void Init_mat2d(VALUE module) {
 
   rb_define_alloc_func(cMat2d, mat2d_alloc);
   rb_define_method(cMat2d, "initialize", mat2d_initialize, -1);
+  rb_define_method(cMat2d, "initialize_copy", mat2d_initialize_copy, 1);
 
   rb_define_singleton_method(cMat2d, "identity", mat2d_class_identity, 0);
   rb_define_singleton_method(cMat2d, "zero", mat2d_class_zero, 0);

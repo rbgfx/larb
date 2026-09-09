@@ -169,4 +169,29 @@ class Mat2dTest < Test::Unit::TestCase
     m = Larb::Mat2d.identity
     assert_match(/Mat2d/, m.inspect)
   end
+
+  def test_decomposition_round_trips_signed_scales
+    [-1, 1].repeated_permutation(2) do |signs|
+      [0, Math::PI / 2, 1.2].each do |angle|
+        matrix = Larb::Mat2d.from_rotation_translation_scale(
+          angle, Larb::Vec2.new(1, 2), Larb::Vec2.new(signs[0] * 2, signs[1] * 3)
+        )
+        scale = matrix.extract_scale
+        assert_equal signs.inject(:*) < 0, scale.x < 0
+        rebuilt = Larb::Mat2d.from_rotation_translation_scale(
+          matrix.extract_rotation, matrix.extract_translation, scale
+        )
+        assert rebuilt.to_a.all?(&:finite?)
+        matrix.to_a.zip(rebuilt.to_a).each { |a, b| assert_in_delta a, b, 1e-9 }
+      end
+    end
+  end
+
+  def test_decomposition_rejects_shear_zero_scale_and_nonfinite_values
+    [Larb::Mat2d.new([1, 0, 0.5, 1, 0, 0]), Larb::Mat2d.scaling(0, 1),
+     Larb::Mat2d.scaling(Float::NAN, 1)].each do |matrix|
+      assert_raise(ArgumentError) { matrix.extract_scale }
+      assert_raise(ArgumentError) { matrix.extract_rotation }
+    end
+  end
 end

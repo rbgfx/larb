@@ -1,4 +1,5 @@
 #include "mat4.h"
+#include "matrix_utils.h"
 
 #include <math.h>
 
@@ -22,11 +23,6 @@ static VALUE cMat4 = Qnil;
 static VALUE cVec3 = Qnil;
 static VALUE cVec4 = Qnil;
 static VALUE cQuat = Qnil;
-
-static double value_to_double(VALUE value) {
-  VALUE coerced = rb_funcall(value, rb_intern("to_f"), 0);
-  return NUM2DBL(coerced);
-}
 
 static Mat4Data *mat4_get(VALUE obj) {
   Mat4Data *data = NULL;
@@ -53,10 +49,11 @@ static VALUE mat4_build16(VALUE klass, double v0, double v1, double v2,
 }
 
 static inline void vec3_normalize(double *x, double *y, double *z) {
-  double len = sqrt((*x) * (*x) + (*y) * (*y) + (*z) * (*z));
-  *x /= len;
-  *y /= len;
-  *z /= len;
+  double values[3] = {*x, *y, *z};
+  larb_normalize(values, 3);
+  *x = values[0];
+  *y = values[1];
+  *z = values[2];
 }
 
 static inline void vec3_cross(double ax, double ay, double az, double bx,
@@ -80,30 +77,34 @@ VALUE mat4_alloc(VALUE klass) {
 }
 
 VALUE mat4_initialize(int argc, VALUE *argv, VALUE self) {
+  rb_check_frozen(self);
   VALUE data_arg = Qnil;
-  Mat4Data *data = mat4_get(self);
-
+  Mat4Data values = {{1.0, 0.0, 0.0, 0.0,
+                      0.0, 1.0, 0.0, 0.0,
+                      0.0, 0.0, 1.0, 0.0,
+                      0.0, 0.0, 0.0, 1.0}};
   rb_scan_args(argc, argv, "01", &data_arg);
-  if (NIL_P(data_arg)) {
-    for (int i = 0; i < 16; i++) {
-      data->data[i] = 0.0;
+  if (argc != 0) {
+    VALUE ary = rb_check_array_type(data_arg);
+    if (NIL_P(ary)) {
+      rb_raise(rb_eTypeError, "expected Array");
     }
-    data->data[0] = 1.0;
-    data->data[5] = 1.0;
-    data->data[10] = 1.0;
-    data->data[15] = 1.0;
-    return self;
+    if (RARRAY_LEN(ary) != 16) {
+      rb_raise(rb_eArgError, "expected 16 elements");
+    }
+    for (int i = 0; i < 16; i++) {
+      values.data[i] = NUM2DBL(rb_ary_entry(ary, i));
+    }
   }
+  rb_check_frozen(self);
+  *mat4_get(self) = values;
+  return self;
+}
 
-  VALUE ary = rb_check_array_type(data_arg);
-  if (NIL_P(ary)) {
-    rb_raise(rb_eTypeError, "expected Array");
-  }
-
-  for (int i = 0; i < 16; i++) {
-    data->data[i] = value_to_double(rb_ary_entry(ary, i));
-  }
-
+static VALUE mat4_initialize_copy(VALUE self, VALUE other) {
+  if (self == other) return self;
+  rb_obj_init_copy(self, other);
+  *mat4_get(self) = *mat4_get(other);
   return self;
 }
 
@@ -125,15 +126,15 @@ static VALUE mat4_class_translation(VALUE klass, VALUE x, VALUE y, VALUE z) {
 }
 
 static VALUE mat4_class_scaling(VALUE klass, VALUE x, VALUE y, VALUE z) {
-  double sx = value_to_double(x);
-  double sy = value_to_double(y);
-  double sz = value_to_double(z);
+  double sx = NUM2DBL(x);
+  double sy = NUM2DBL(y);
+  double sz = NUM2DBL(z);
   return mat4_build16(klass, sx, 0.0, 0.0, 0.0, 0.0, sy, 0.0, 0.0, 0.0, 0.0,
                       sz, 0.0, 0.0, 0.0, 0.0, 1.0);
 }
 
 static VALUE mat4_class_rotation_x(VALUE klass, VALUE radians) {
-  double r = value_to_double(radians);
+  double r = NUM2DBL(radians);
   double c = cos(r);
   double s = sin(r);
   return mat4_build16(klass, 1.0, 0.0, 0.0, 0.0, 0.0, c, s, 0.0, 0.0, -s, c,
@@ -141,7 +142,7 @@ static VALUE mat4_class_rotation_x(VALUE klass, VALUE radians) {
 }
 
 static VALUE mat4_class_rotation_y(VALUE klass, VALUE radians) {
-  double r = value_to_double(radians);
+  double r = NUM2DBL(radians);
   double c = cos(r);
   double s = sin(r);
   return mat4_build16(klass, c, 0.0, -s, 0.0, 0.0, 1.0, 0.0, 0.0, s, 0.0, c,
@@ -149,7 +150,7 @@ static VALUE mat4_class_rotation_y(VALUE klass, VALUE radians) {
 }
 
 static VALUE mat4_class_rotation_z(VALUE klass, VALUE radians) {
-  double r = value_to_double(radians);
+  double r = NUM2DBL(radians);
   double c = cos(r);
   double s = sin(r);
   return mat4_build16(klass, c, s, 0.0, 0.0, -s, c, 0.0, 0.0, 0.0, 0.0, 1.0,
@@ -158,10 +159,10 @@ static VALUE mat4_class_rotation_z(VALUE klass, VALUE radians) {
 
 static VALUE mat4_class_rotation(VALUE klass, VALUE axis, VALUE radians) {
   VALUE normalized = rb_funcall(axis, rb_intern("normalize"), 0);
-  double x = value_to_double(rb_funcall(normalized, rb_intern("x"), 0));
-  double y = value_to_double(rb_funcall(normalized, rb_intern("y"), 0));
-  double z = value_to_double(rb_funcall(normalized, rb_intern("z"), 0));
-  double r = value_to_double(radians);
+  double x = NUM2DBL(rb_funcall(normalized, rb_intern("x"), 0));
+  double y = NUM2DBL(rb_funcall(normalized, rb_intern("y"), 0));
+  double z = NUM2DBL(rb_funcall(normalized, rb_intern("z"), 0));
+  double r = NUM2DBL(radians);
   double c = cos(r);
   double s = sin(r);
   double t = 1.0 - c;
@@ -175,21 +176,22 @@ static VALUE mat4_class_rotation(VALUE klass, VALUE axis, VALUE radians) {
 
 static VALUE mat4_class_look_at(VALUE klass, VALUE eye, VALUE target,
                                 VALUE up) {
-  double ex = value_to_double(rb_funcall(eye, rb_intern("x"), 0));
-  double ey = value_to_double(rb_funcall(eye, rb_intern("y"), 0));
-  double ez = value_to_double(rb_funcall(eye, rb_intern("z"), 0));
-  double tx = value_to_double(rb_funcall(target, rb_intern("x"), 0));
-  double ty = value_to_double(rb_funcall(target, rb_intern("y"), 0));
-  double tz = value_to_double(rb_funcall(target, rb_intern("z"), 0));
-  double ux = value_to_double(rb_funcall(up, rb_intern("x"), 0));
-  double uy = value_to_double(rb_funcall(up, rb_intern("y"), 0));
-  double uz = value_to_double(rb_funcall(up, rb_intern("z"), 0));
+  double ex = NUM2DBL(rb_funcall(eye, rb_intern("x"), 0));
+  double ey = NUM2DBL(rb_funcall(eye, rb_intern("y"), 0));
+  double ez = NUM2DBL(rb_funcall(eye, rb_intern("z"), 0));
+  double tx = NUM2DBL(rb_funcall(target, rb_intern("x"), 0));
+  double ty = NUM2DBL(rb_funcall(target, rb_intern("y"), 0));
+  double tz = NUM2DBL(rb_funcall(target, rb_intern("z"), 0));
+  double ux = NUM2DBL(rb_funcall(up, rb_intern("x"), 0));
+  double uy = NUM2DBL(rb_funcall(up, rb_intern("y"), 0));
+  double uz = NUM2DBL(rb_funcall(up, rb_intern("z"), 0));
 
   double fx = tx - ex;
   double fy = ty - ey;
   double fz = tz - ez;
   vec3_normalize(&fx, &fy, &fz);
 
+  vec3_normalize(&ux, &uy, &uz);
   double rx, ry, rz;
   vec3_cross(fx, fy, fz, ux, uy, uz, &rx, &ry, &rz);
   vec3_normalize(&rx, &ry, &rz);
@@ -205,11 +207,11 @@ static VALUE mat4_class_look_at(VALUE klass, VALUE eye, VALUE target,
 
 static VALUE mat4_class_perspective(VALUE klass, VALUE fov_y, VALUE aspect,
                                     VALUE near, VALUE far) {
-  double f = 1.0 / tan(value_to_double(fov_y) / 2.0);
-  double nf = 1.0 / (value_to_double(near) - value_to_double(far));
-  double a = value_to_double(aspect);
-  double n = value_to_double(near);
-  double fr = value_to_double(far);
+  double f = 1.0 / tan(NUM2DBL(fov_y) / 2.0);
+  double nf = 1.0 / (NUM2DBL(near) - NUM2DBL(far));
+  double a = NUM2DBL(aspect);
+  double n = NUM2DBL(near);
+  double fr = NUM2DBL(far);
 
   return mat4_build16(klass, f / a, 0.0, 0.0, 0.0, 0.0, f, 0.0, 0.0, 0.0, 0.0,
                       (fr + n) * nf, -1.0, 0.0, 0.0, 2.0 * fr * n * nf, 0.0);
@@ -218,15 +220,15 @@ static VALUE mat4_class_perspective(VALUE klass, VALUE fov_y, VALUE aspect,
 static VALUE mat4_class_orthographic(VALUE klass, VALUE left, VALUE right,
                                      VALUE bottom, VALUE top, VALUE near,
                                      VALUE far) {
-  double rl = 1.0 / (value_to_double(right) - value_to_double(left));
-  double tb = 1.0 / (value_to_double(top) - value_to_double(bottom));
-  double fn = 1.0 / (value_to_double(far) - value_to_double(near));
-  double r = value_to_double(right);
-  double l = value_to_double(left);
-  double t = value_to_double(top);
-  double b = value_to_double(bottom);
-  double f = value_to_double(far);
-  double n = value_to_double(near);
+  double rl = 1.0 / (NUM2DBL(right) - NUM2DBL(left));
+  double tb = 1.0 / (NUM2DBL(top) - NUM2DBL(bottom));
+  double fn = 1.0 / (NUM2DBL(far) - NUM2DBL(near));
+  double r = NUM2DBL(right);
+  double l = NUM2DBL(left);
+  double t = NUM2DBL(top);
+  double b = NUM2DBL(bottom);
+  double f = NUM2DBL(far);
+  double n = NUM2DBL(near);
 
   return mat4_build16(klass, 2 * rl, 0.0, 0.0, 0.0, 0.0, 2 * tb, 0.0, 0.0,
                       0.0, 0.0, -2 * fn, 0.0, -(r + l) * rl, -(t + b) * tb,
@@ -236,15 +238,15 @@ static VALUE mat4_class_orthographic(VALUE klass, VALUE left, VALUE right,
 static VALUE mat4_class_frustum(VALUE klass, VALUE left, VALUE right,
                                 VALUE bottom, VALUE top, VALUE near,
                                 VALUE far) {
-  double rl = 1.0 / (value_to_double(right) - value_to_double(left));
-  double tb = 1.0 / (value_to_double(top) - value_to_double(bottom));
-  double nf = 1.0 / (value_to_double(near) - value_to_double(far));
-  double r = value_to_double(right);
-  double l = value_to_double(left);
-  double t = value_to_double(top);
-  double b = value_to_double(bottom);
-  double n = value_to_double(near);
-  double f = value_to_double(far);
+  double rl = 1.0 / (NUM2DBL(right) - NUM2DBL(left));
+  double tb = 1.0 / (NUM2DBL(top) - NUM2DBL(bottom));
+  double nf = 1.0 / (NUM2DBL(near) - NUM2DBL(far));
+  double r = NUM2DBL(right);
+  double l = NUM2DBL(left);
+  double t = NUM2DBL(top);
+  double b = NUM2DBL(bottom);
+  double n = NUM2DBL(near);
+  double f = NUM2DBL(far);
 
   return mat4_build16(klass, 2 * n * rl, 0.0, 0.0, 0.0, 0.0, 2 * n * tb, 0.0,
                       0.0, (r + l) * rl, (t + b) * tb, (f + n) * nf, -1.0, 0.0,
@@ -252,10 +254,10 @@ static VALUE mat4_class_frustum(VALUE klass, VALUE left, VALUE right,
 }
 
 static VALUE mat4_class_from_quaternion(VALUE klass, VALUE quat) {
-  double x = value_to_double(rb_funcall(quat, rb_intern("x"), 0));
-  double y = value_to_double(rb_funcall(quat, rb_intern("y"), 0));
-  double z = value_to_double(rb_funcall(quat, rb_intern("z"), 0));
-  double w = value_to_double(rb_funcall(quat, rb_intern("w"), 0));
+  double x = NUM2DBL(rb_funcall(quat, rb_intern("x"), 0));
+  double y = NUM2DBL(rb_funcall(quat, rb_intern("y"), 0));
+  double z = NUM2DBL(rb_funcall(quat, rb_intern("z"), 0));
+  double w = NUM2DBL(rb_funcall(quat, rb_intern("w"), 0));
 
   double x2 = x + x;
   double y2 = y + y;
@@ -278,17 +280,17 @@ static VALUE mat4_class_from_quaternion(VALUE klass, VALUE quat) {
 static VALUE mat4_class_trs(VALUE klass, VALUE translation, VALUE rotation,
                             VALUE scale) {
   VALUE rot = mat4_class_from_quaternion(klass, rotation);
-  double sx = value_to_double(rb_funcall(scale, rb_intern("x"), 0));
-  double sy = value_to_double(rb_funcall(scale, rb_intern("y"), 0));
-  double sz = value_to_double(rb_funcall(scale, rb_intern("z"), 0));
+  double sx = NUM2DBL(rb_funcall(scale, rb_intern("x"), 0));
+  double sy = NUM2DBL(rb_funcall(scale, rb_intern("y"), 0));
+  double sz = NUM2DBL(rb_funcall(scale, rb_intern("z"), 0));
   VALUE scale_m = mat4_class_scaling(klass, DBL2NUM(sx), DBL2NUM(sy), DBL2NUM(sz));
-  double tx = value_to_double(rb_funcall(translation, rb_intern("x"), 0));
-  double ty = value_to_double(rb_funcall(translation, rb_intern("y"), 0));
-  double tz = value_to_double(rb_funcall(translation, rb_intern("z"), 0));
+  double tx = NUM2DBL(rb_funcall(translation, rb_intern("x"), 0));
+  double ty = NUM2DBL(rb_funcall(translation, rb_intern("y"), 0));
+  double tz = NUM2DBL(rb_funcall(translation, rb_intern("z"), 0));
   VALUE trans_m =
       mat4_class_translation(klass, DBL2NUM(tx), DBL2NUM(ty), DBL2NUM(tz));
   VALUE tmp = mat4_mul(rot, scale_m);
-  return mat4_mul(tmp, trans_m);
+  return mat4_mul(trans_m, tmp);
 }
 
 VALUE mat4_aref(VALUE self, VALUE index) {
@@ -301,12 +303,15 @@ VALUE mat4_aref(VALUE self, VALUE index) {
 }
 
 VALUE mat4_aset(VALUE self, VALUE index, VALUE value) {
+  rb_check_frozen(self);
   Mat4Data *data = mat4_get(self);
   long idx = NUM2LONG(index);
   if (idx < 0 || idx > 15) {
     rb_raise(rb_eIndexError, "index %ld out of range", idx);
   }
-  data->data[idx] = value_to_double(value);
+  double component = NUM2DBL(value);
+  rb_check_frozen(self);
+  data->data[idx] = component;
   return value;
 }
 
@@ -342,10 +347,10 @@ VALUE mat4_mul(VALUE self, VALUE other) {
   }
 
   if (rb_obj_is_kind_of(other, cVec4)) {
-    double x = value_to_double(rb_funcall(other, rb_intern("x"), 0));
-    double y = value_to_double(rb_funcall(other, rb_intern("y"), 0));
-    double z = value_to_double(rb_funcall(other, rb_intern("z"), 0));
-    double w = value_to_double(rb_funcall(other, rb_intern("w"), 0));
+    double x = NUM2DBL(rb_funcall(other, rb_intern("x"), 0));
+    double y = NUM2DBL(rb_funcall(other, rb_intern("y"), 0));
+    double z = NUM2DBL(rb_funcall(other, rb_intern("z"), 0));
+    double w = NUM2DBL(rb_funcall(other, rb_intern("w"), 0));
     VALUE vec4_class = rb_const_get(mLarb, rb_intern("Vec4"));
     return rb_funcall(
         vec4_class, rb_intern("new"), 4,
@@ -364,7 +369,16 @@ VALUE mat4_mul(VALUE self, VALUE other) {
     return mat4_mul(self, vec4);
   }
 
-  return Qnil;
+  if (rb_obj_is_kind_of(other, rb_cNumeric)) {
+    double scalar = NUM2DBL(other);
+    double values[16];
+    for (int i = 0; i < 16; i++) {
+      values[i] = a->data[i] * scalar;
+    }
+    return mat4_build(rb_obj_class(self), values);
+  }
+
+  rb_raise(rb_eTypeError, "unsupported operand for Mat4 multiplication");
 }
 
 VALUE mat4_transpose(VALUE self) {
@@ -377,72 +391,9 @@ VALUE mat4_transpose(VALUE self) {
 }
 
 VALUE mat4_inverse(VALUE self) {
-  Mat4Data *a = mat4_get(self);
-  const double *m = a->data;
-  const double m0 = m[0];
-  const double m1 = m[1];
-  const double m2 = m[2];
-  const double m3 = m[3];
-  const double m4 = m[4];
-  const double m5 = m[5];
-  const double m6 = m[6];
-  const double m7 = m[7];
-  const double m8 = m[8];
-  const double m9 = m[9];
-  const double m10 = m[10];
-  const double m11 = m[11];
-  const double m12 = m[12];
-  const double m13 = m[13];
-  const double m14 = m[14];
-  const double m15 = m[15];
-  double inv[16];
-
-  inv[0] = m5 * m10 * m15 - m5 * m11 * m14 - m9 * m6 * m15 +
-           m9 * m7 * m14 + m13 * m6 * m11 - m13 * m7 * m10;
-  inv[4] = -m4 * m10 * m15 + m4 * m11 * m14 + m8 * m6 * m15 -
-           m8 * m7 * m14 - m12 * m6 * m11 + m12 * m7 * m10;
-  inv[8] = m4 * m9 * m15 - m4 * m11 * m13 - m8 * m5 * m15 +
-           m8 * m7 * m13 + m12 * m5 * m11 - m12 * m7 * m9;
-  inv[12] = -m4 * m9 * m14 + m4 * m10 * m13 + m8 * m5 * m14 -
-            m8 * m6 * m13 - m12 * m5 * m10 + m12 * m6 * m9;
-
-  inv[1] = -m1 * m10 * m15 + m1 * m11 * m14 + m9 * m2 * m15 -
-           m9 * m3 * m14 - m13 * m2 * m11 + m13 * m3 * m10;
-  inv[5] = m0 * m10 * m15 - m0 * m11 * m14 - m8 * m2 * m15 +
-           m8 * m3 * m14 + m12 * m2 * m11 - m12 * m3 * m10;
-  inv[9] = -m0 * m9 * m15 + m0 * m11 * m13 + m8 * m1 * m15 -
-           m8 * m3 * m13 - m12 * m1 * m11 + m12 * m3 * m9;
-  inv[13] = m0 * m9 * m14 - m0 * m10 * m13 - m8 * m1 * m14 +
-            m8 * m2 * m13 + m12 * m1 * m10 - m12 * m2 * m9;
-
-  inv[2] = m1 * m6 * m15 - m1 * m7 * m14 - m5 * m2 * m15 +
-           m5 * m3 * m14 + m13 * m2 * m7 - m13 * m3 * m6;
-  inv[6] = -m0 * m6 * m15 + m0 * m7 * m14 + m4 * m2 * m15 -
-           m4 * m3 * m14 - m12 * m2 * m7 + m12 * m3 * m6;
-  inv[10] = m0 * m5 * m15 - m0 * m7 * m13 - m4 * m1 * m15 +
-            m4 * m3 * m13 + m12 * m1 * m7 - m12 * m3 * m5;
-  inv[14] = -m0 * m5 * m14 + m0 * m6 * m13 + m4 * m1 * m14 -
-            m4 * m2 * m13 - m12 * m1 * m6 + m12 * m2 * m5;
-
-  inv[3] = -m1 * m6 * m11 + m1 * m7 * m10 + m5 * m2 * m11 -
-           m5 * m3 * m10 - m9 * m2 * m7 + m9 * m3 * m6;
-  inv[7] = m0 * m6 * m11 - m0 * m7 * m10 - m4 * m2 * m11 +
-           m4 * m3 * m10 + m8 * m2 * m7 - m8 * m3 * m6;
-  inv[11] = -m0 * m5 * m11 + m0 * m7 * m9 + m4 * m1 * m11 -
-            m4 * m3 * m9 - m8 * m1 * m7 + m8 * m3 * m5;
-  inv[15] = m0 * m5 * m10 - m0 * m6 * m9 - m4 * m1 * m10 +
-            m4 * m2 * m9 + m8 * m1 * m6 - m8 * m2 * m5;
-
-  double det = m0 * inv[0] + m1 * inv[4] + m2 * inv[8] + m3 * inv[12];
-  if (fabs(det) < 1e-10) {
-    rb_raise(rb_eRuntimeError, "Matrix is not invertible");
-  }
-
-  det = 1.0 / det;
-  for (int i = 0; i < 16; i++) {
-    inv[i] *= det;
-  }
-  return mat4_build(rb_obj_class(self), inv);
+  double inverse[16];
+  larb_matrix_inverse(mat4_get(self)->data, inverse, 4);
+  return mat4_build(rb_obj_class(self), inverse);
 }
 
 VALUE mat4_to_a(VALUE self) {
@@ -522,10 +473,13 @@ VALUE mat4_near(int argc, VALUE *argv, VALUE self) {
   rb_scan_args(argc, argv, "11", &other, &epsilon);
   Mat4Data *a = mat4_get(self);
   Mat4Data *b = mat4_get(other);
-  double eps = NIL_P(epsilon) ? 1e-6 : value_to_double(epsilon);
+  double eps = argc < 2 ? 1e-6 : NUM2DBL(epsilon);
+  if (!isfinite(eps) || eps <= 0.0) {
+    rb_raise(rb_eArgError, "epsilon must be finite and positive");
+  }
 
   for (int i = 0; i < 16; i++) {
-    if (fabs(a->data[i] - b->data[i]) >= eps) {
+    if (!(fabs(a->data[i] - b->data[i]) < eps)) {
       return Qfalse;
     }
   }
@@ -539,63 +493,88 @@ VALUE mat4_extract_translation(VALUE self) {
                     DBL2NUM(a->data[13]), DBL2NUM(a->data[14]));
 }
 
+static void mat4_decompose(const Mat4Data *a, double *scale, double *rotation) {
+  for (int i = 0; i < 16; i++) {
+    if (!isfinite(a->data[i])) {
+      rb_raise(rb_eArgError, "Cannot decompose non-finite components");
+    }
+  }
+  if (a->data[3] != 0.0 || a->data[7] != 0.0 || a->data[11] != 0.0 ||
+      a->data[15] != 1.0) {
+    rb_raise(rb_eArgError, "Cannot decompose a perspective matrix");
+  }
+  for (int col = 0; col < 3; col++) {
+    const double *v = a->data + col * 4;
+    scale[col] = hypot(hypot(v[0], v[1]), v[2]);
+    if (scale[col] == 0.0 || !isfinite(scale[col])) {
+      rb_raise(rb_eArgError, "Cannot decompose zero or non-finite scale");
+    }
+    for (int row = 0; row < 3; row++) {
+      rotation[col * 3 + row] = v[row] / scale[col];
+    }
+  }
+  for (int col = 0; col < 3; col++) {
+    for (int other = col + 1; other < 3; other++) {
+      double dot = 0.0;
+      for (int row = 0; row < 3; row++) {
+        dot += rotation[col * 3 + row] * rotation[other * 3 + row];
+      }
+      if (fabs(dot) > 1e-6) {
+        rb_raise(rb_eArgError, "Cannot decompose shear");
+      }
+    }
+  }
+  double det = rotation[0] * (rotation[4] * rotation[8] - rotation[5] * rotation[7]) -
+               rotation[3] * (rotation[1] * rotation[8] - rotation[2] * rotation[7]) +
+               rotation[6] * (rotation[1] * rotation[5] - rotation[2] * rotation[4]);
+  if (det < 0.0) {
+    scale[0] = -scale[0];
+    for (int row = 0; row < 3; row++) rotation[row] = -rotation[row];
+  }
+}
+
 VALUE mat4_extract_scale(VALUE self) {
-  Mat4Data *a = mat4_get(self);
-  double sx = sqrt(a->data[0] * a->data[0] + a->data[1] * a->data[1] +
-                   a->data[2] * a->data[2]);
-  double sy = sqrt(a->data[4] * a->data[4] + a->data[5] * a->data[5] +
-                   a->data[6] * a->data[6]);
-  double sz = sqrt(a->data[8] * a->data[8] + a->data[9] * a->data[9] +
-                   a->data[10] * a->data[10]);
-  VALUE vec3_class = rb_const_get(mLarb, rb_intern("Vec3"));
-  return rb_funcall(vec3_class, rb_intern("new"), 3, DBL2NUM(sx), DBL2NUM(sy),
-                    DBL2NUM(sz));
+  double scale[3], rotation[9];
+  mat4_decompose(mat4_get(self), scale, rotation);
+  return rb_funcall(cVec3, rb_intern("new"), 3, DBL2NUM(scale[0]),
+                    DBL2NUM(scale[1]), DBL2NUM(scale[2]));
 }
 
 VALUE mat4_extract_rotation(VALUE self) {
-  Mat4Data *a = mat4_get(self);
-  VALUE scale = mat4_extract_scale(self);
-  double sx = value_to_double(rb_funcall(scale, rb_intern("x"), 0));
-  double sy = value_to_double(rb_funcall(scale, rb_intern("y"), 0));
-  double sz = value_to_double(rb_funcall(scale, rb_intern("z"), 0));
-
-  double m00 = a->data[0] / sx;
-  double m01 = a->data[1] / sx;
-  double m02 = a->data[2] / sx;
-  double m10 = a->data[4] / sy;
-  double m11 = a->data[5] / sy;
-  double m12 = a->data[6] / sy;
-  double m20 = a->data[8] / sz;
-  double m21 = a->data[9] / sz;
-  double m22 = a->data[10] / sz;
-
+  double scale[3], rotation[9], q[4];
+  mat4_decompose(mat4_get(self), scale, rotation);
+  double m00 = rotation[0], m01 = rotation[1], m02 = rotation[2];
+  double m10 = rotation[3], m11 = rotation[4], m12 = rotation[5];
+  double m20 = rotation[6], m21 = rotation[7], m22 = rotation[8];
   double trace = m00 + m11 + m22;
   if (trace > 0.0) {
     double s = 0.5 / sqrt(trace + 1.0);
-    return rb_funcall(cQuat, rb_intern("new"), 4,
-                      DBL2NUM((m12 - m21) * s),
-                      DBL2NUM((m20 - m02) * s),
-                      DBL2NUM((m01 - m10) * s), DBL2NUM(0.25 / s));
-  }
-  if (m00 > m11 && m00 > m22) {
+    q[0] = (m12 - m21) * s;
+    q[1] = (m20 - m02) * s;
+    q[2] = (m01 - m10) * s;
+    q[3] = 0.25 / s;
+  } else if (m00 > m11 && m00 > m22) {
     double s = 2.0 * sqrt(1.0 + m00 - m11 - m22);
-    return rb_funcall(cQuat, rb_intern("new"), 4, DBL2NUM(0.25 * s),
-                      DBL2NUM((m10 + m01) / s),
-                      DBL2NUM((m20 + m02) / s),
-                      DBL2NUM((m12 - m21) / s));
-  }
-  if (m11 > m22) {
+    q[0] = 0.25 * s;
+    q[1] = (m10 + m01) / s;
+    q[2] = (m20 + m02) / s;
+    q[3] = (m12 - m21) / s;
+  } else if (m11 > m22) {
     double s = 2.0 * sqrt(1.0 + m11 - m00 - m22);
-    return rb_funcall(cQuat, rb_intern("new"), 4,
-                      DBL2NUM((m10 + m01) / s), DBL2NUM(0.25 * s),
-                      DBL2NUM((m21 + m12) / s),
-                      DBL2NUM((m20 - m02) / s));
+    q[0] = (m10 + m01) / s;
+    q[1] = 0.25 * s;
+    q[2] = (m21 + m12) / s;
+    q[3] = (m20 - m02) / s;
+  } else {
+    double s = 2.0 * sqrt(1.0 + m22 - m00 - m11);
+    q[0] = (m20 + m02) / s;
+    q[1] = (m21 + m12) / s;
+    q[2] = 0.25 * s;
+    q[3] = (m01 - m10) / s;
   }
-  double s = 2.0 * sqrt(1.0 + m22 - m00 - m11);
+  larb_normalize(q, 4);
   return rb_funcall(cQuat, rb_intern("new"), 4,
-                    DBL2NUM((m20 + m02) / s),
-                    DBL2NUM((m21 + m12) / s), DBL2NUM(0.25 * s),
-                    DBL2NUM((m01 - m10) / s));
+                    DBL2NUM(q[0]), DBL2NUM(q[1]), DBL2NUM(q[2]), DBL2NUM(q[3]));
 }
 
 static VALUE mat4_format_value(double value) {
@@ -634,6 +613,7 @@ void Init_mat4(VALUE module) {
 
   rb_define_alloc_func(cMat4, mat4_alloc);
   rb_define_method(cMat4, "initialize", mat4_initialize, -1);
+  rb_define_method(cMat4, "initialize_copy", mat4_initialize_copy, 1);
 
   rb_define_singleton_method(cMat4, "identity", mat4_class_identity, 0);
   rb_define_singleton_method(cMat4, "zero", mat4_class_zero, 0);
