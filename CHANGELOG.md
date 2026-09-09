@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 1.0.1 - 2026-09-09
+
 - Preserve native components in `dup`/`clone` and enforce `freeze` on all mutations.
 - Correct indexed Vec2 assignment, transform composition, quaternion interpolation, dual quaternion normalization/inversion, and reflection decomposition.
 - Stabilize lengths, normalization, matrix inversion, and small axis-angle rotations; prevent NaN values from passing approximate comparisons.
