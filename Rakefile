@@ -14,3 +14,4 @@ Rake::TestTask.new(:test) do |t|
 end
 
 task default: %i[compile test]
+task verify: %i[compile test]
