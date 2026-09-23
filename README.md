@@ -1,12 +1,17 @@
-# Larb
+<h1 align="center">Larb</h1>
 
-> Linear algebra for 2D and 3D graphics in Ruby.
+<p align="center">Linear algebra for 2D and 3D graphics in Ruby.</p>
 
-[![Gem version](https://badge.fury.io/rb/larb.svg)](https://rubygems.org/gems/larb) [![Downloads](https://img.shields.io/gem/dt/larb?label=downloads)](https://rubygems.org/gems/larb) [![Ruby](https://img.shields.io/badge/ruby-%3E%3D3.1-CC342D?logo=ruby&logoColor=white)](https://www.ruby-lang.org/) [![CI](https://github.com/rbgfx/larb/actions/workflows/main.yml/badge.svg)](https://github.com/rbgfx/larb/actions/workflows/main.yml) [![License](https://img.shields.io/badge/license-MIT-750014.svg)](LICENSE)
+<p align="center">
+  <a href="https://rubygems.org/gems/larb"><img src="https://badge.fury.io/rb/larb.svg" alt="Gem Version"></a>
+  <a href="https://rubygems.org/gems/larb"><img src="https://img.shields.io/gem/dt/larb?label=downloads" alt="Downloads"></a>
+  <a href="https://www.ruby-lang.org/"><img src="https://img.shields.io/badge/ruby-%3E%3D3.1-CC342D?logo=ruby&amp;logoColor=white" alt="Ruby Version"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-750014.svg" alt="License"></a>
+</p>
 
-**[Features](#features) · [Installation](#installation) · [Requirements](#requirements) · [Usage](#usage) · [Value and input behavior](#value-and-input-behavior) · [Development](#development) · [License](#license) · [Website](https://rbgfx.github.io/larb/)**
+[Features](#features) · [Installation](#installation) · [Usage](#usage) · [Value and Input Behavior](#value-and-input-behavior)
 
----
+***
 
 Larb provides vector, matrix, quaternion, and color types for graphics and mathematical computations.
 
@@ -36,7 +41,7 @@ Or install it yourself as:
 gem install larb
 ```
 
-## Requirements
+### Requirements
 
 - Ruby 3.1 or newer.
 - A C compiler and Ruby development headers are required to build the native extension.
@@ -138,6 +143,10 @@ bundle exec rake compile
 # Run tests
 bundle exec rake test
 ```
+
+## Contributing
+
+Bug reports and pull requests are welcome at [rbgfx/larb](https://github.com/rbgfx/larb).
 
 ## License
 
