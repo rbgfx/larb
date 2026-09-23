@@ -1,4 +1,4 @@
-# Larb [![Gem Version](https://badge.fury.io/rb/larb.svg)](https://badge.fury.io/rb/larb) [![CI](https://github.com/ydah/larb/actions/workflows/ci.yml/badge.svg)](https://github.com/ydah/larb/actions/workflows/ci.yml)
+# Larb [![Gem Version](https://badge.fury.io/rb/larb.svg)](https://badge.fury.io/rb/larb) [![CI](https://github.com/ydah/larb/actions/workflows/main.yml/badge.svg)](https://github.com/ydah/larb/actions/workflows/main.yml)
 
 Linear algebra library for 2D/3D graphics in Ruby.
 
