@@ -1,6 +1,20 @@
-# Larb [![Gem Version](https://badge.fury.io/rb/larb.svg)](https://badge.fury.io/rb/larb) [![CI](https://github.com/ydah/larb/actions/workflows/main.yml/badge.svg)](https://github.com/ydah/larb/actions/workflows/main.yml)
+# Larb
 
-Linear algebra library for 2D/3D graphics in Ruby.
+> Linear algebra for 2D and 3D graphics in Ruby.
+
+[![Gem version](https://badge.fury.io/rb/larb.svg)](https://rubygems.org/gems/larb) [![Downloads](https://img.shields.io/gem/dt/larb?label=downloads)](https://rubygems.org/gems/larb) [![Ruby](https://img.shields.io/badge/ruby-%3E%3D3.1-CC342D?logo=ruby&logoColor=white)](https://www.ruby-lang.org/) [![CI](https://github.com/rbgfx/larb/actions/workflows/main.yml/badge.svg)](https://github.com/rbgfx/larb/actions/workflows/main.yml) [![License](https://img.shields.io/badge/license-MIT-750014.svg)](LICENSE)
+
+**[Features](#features) · [Installation](#installation) · [Requirements](#requirements) · [Usage](#usage) · [Value and input behavior](#value-and-input-behavior) · [Development](#development) · [License](#license) · [Website](https://rbgfx.github.io/larb/)**
+
+---
+
+Larb provides vector, matrix, quaternion, and color types for graphics and mathematical computations.
+
+## Features
+
+- Vec2/3/4 vectors, matrix types, and affine transforms.
+- Quaternions and dual quaternions for rotation and skinning math.
+- Color construction, interpolation, and hexadecimal conversion.
 
 ## Installation
 
@@ -21,6 +35,11 @@ Or install it yourself as:
 ```bash
 gem install larb
 ```
+
+## Requirements
+
+- Ruby 3.1 or newer.
+- A C compiler and Ruby development headers are required to build the native extension.
 
 ## Usage
 
