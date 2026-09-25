@@ -4,7 +4,7 @@
 
 ## 1.0.2 - 2026-09-25
 
-- Omit the empty host architecture flag when compiling the C extension for WASI.
+- Fix installation of the native extension for WASI.
 
 ## 1.0.1 - 2026-09-09
 
