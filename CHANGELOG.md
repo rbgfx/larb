@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.0.2 - 2026-09-25
+
+- Omit the empty host architecture flag when compiling the C extension for WASI.
+
 ## 1.0.1 - 2026-09-09
 
 - Preserve native components in `dup`/`clone` and enforce `freeze` on all mutations.
