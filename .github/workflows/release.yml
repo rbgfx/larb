@@ -20,33 +20,23 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Prepare release Gemfile outside the worktree
-        run: |
-          cp Gemfile .git/release.Gemfile
-          sed -i 's/^gemspec$/gemspec path: ENV.fetch("GITHUB_WORKSPACE")/' .git/release.Gemfile
       - name: Set up Ruby
         uses: ruby/setup-ruby@984c0c890880bbf811283d6f09c4607c62d210a4 # v1.323.0
         with:
           ruby-version: '3.2'
           bundler: default
       - run: bundle install
-        env:
-          BUNDLE_GEMFILE: ${{ github.workspace }}/.git/release.Gemfile
       - name: Verify tag and version
         run: |
           version="$(ruby -e 'print Gem::Specification.load(Dir.glob("*.gemspec").fetch(0)).version')"
           test "$GITHUB_REF_NAME" = "v$version"
       - name: Test and build
-        env:
-          BUNDLE_GEMFILE: ${{ github.workspace }}/.git/release.Gemfile
         run: |
           bundle exec rake
           gemspec="$(find . -maxdepth 1 -name '*.gemspec' -print -quit)"
           gem build --strict "$gemspec" --output "$RUNNER_TEMP/package.gem"
       - name: Publish through RubyGems trusted publishing
         uses: rubygems/release-gem@7f9650160c1a4e7989fdc9855807bdbd421d8b6b # v1.4.1
-        env:
-          BUNDLE_GEMFILE: ${{ github.workspace }}/.git/release.Gemfile
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
